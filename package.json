@@ -1,0 +1,36 @@
+{
+  "name": "property_listing_api",
+  "version": "1.0.0",
+  "description": "A complete backend API for a **Property Listing Platform** that enables **agents** to list properties for rent or sale, **buyers** to explore and communicate, and **admins** to manage the ecosystem.  \r This API also supports **Cloudinary file uploads**, **real-time notifications**, **Paystack escrow integration**, **WhatsApp/email alerts**, and **premium subscription plans**.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ejovwogfreeman/property_listing_api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ejovwogfreeman/property_listing_api/issues"
+  },
+  "homepage": "https://github.com/ejovwogfreeman/property_listing_api#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^1.41.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.3",
+    "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "nodemon": "^3.1.10",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.1"
+  }
+}

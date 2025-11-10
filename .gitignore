@@ -1,0 +1,49 @@
+# ===========================
+# Node & Express.js Essentials
+# ===========================
+node_modules/
+.env
+
+# ===========================
+# Logs & Debugging
+# ===========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===========================
+# Uploads & Temporary Files
+# ===========================
+uploads/
+tmp/
+temp/
+*.tmp
+
+# ===========================
+# Operating System Files
+# ===========================
+.DS_Store
+Thumbs.db
+
+# ===========================
+# IDE / Editor Configurations
+# ===========================
+.vscode/
+.idea/
+*.swp
+
+# ===========================
+# Test Coverage & Cache
+# ===========================
+coverage/
+.nyc_output/
+.cache/
+
+# ===========================
+# Build Artifacts (if added later)
+# ===========================
+dist/
+build/
