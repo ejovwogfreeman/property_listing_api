@@ -60,13 +60,43 @@ io.on("connection", (socket) => {
     }
   });
 
+  // // Send notification to a specific user
+  // socket.on("notify", async (data) => {
+  //   try {
+  //     const { userId, title, message, meta } = data || {};
+  //     if (!userId) return;
+
+  //     // Persist notification in MongoDB
+  //     const notif = await Notification.create({
+  //       user: userId,
+  //       title,
+  //       message,
+  //       meta,
+  //     });
+
+  //     // Emit in real-time if user is online
+  //     const targetSocket = onlineUsers.get(userId.toString());
+  //     if (targetSocket) io.to(targetSocket).emit("notification", notif);
+  //   } catch (err) {
+  //     console.error("notify error:", err);
+  //   }
+  // });
+
   // Send notification to a specific user
   socket.on("notify", async (data) => {
     try {
       const { userId, title, message, meta } = data || {};
       if (!userId) return;
 
-      // Persist notification in MongoDB
+      // 🧾 Log the notification on the server console
+      console.log("📨 Notification received for user:", {
+        userId,
+        title,
+        message,
+        meta,
+      });
+
+      // Save notification in MongoDB
       const notif = await Notification.create({
         user: userId,
         title,
@@ -76,9 +106,18 @@ io.on("connection", (socket) => {
 
       // Emit in real-time if user is online
       const targetSocket = onlineUsers.get(userId.toString());
-      if (targetSocket) io.to(targetSocket).emit("notification", notif);
+      if (targetSocket) {
+        io.to(targetSocket).emit("notification", notif);
+
+        // ✅ Log delivery confirmation
+        console.log(`✅ Notification sent to online user (${userId})`);
+      } else {
+        console.log(
+          `🕓 User (${userId}) is offline. Notification stored only.`
+        );
+      }
     } catch (err) {
-      console.error("notify error:", err);
+      console.error("❌ notify error:", err);
     }
   });
 

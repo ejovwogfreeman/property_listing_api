@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dashboard | RealEstate App</title>
+  </head>
+  <body style="font-family: Arial; text-align: center; margin-top: 40px">
+    <h2>Welcome to your dashboard</h2>
+    <p id="user-info">Loading user data...</p>
+    <button id="logoutBtn">Logout</button>
+
+    <script>
+      const token = localStorage.getItem("token");
+      if (!token) {
+        alert("Please log in first");
+        window.location.href = "index.html";
+      }
+
+      async function getUser() {
+        const res = await fetch("http://localhost:8000/api/auth/me", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        const data = await res.json();
+        if (data.success) {
+          document.getElementById(
+            "user-info"
+          ).textContent = `Logged in as ${data.user.name} (${data.user.email})`;
+        } else {
+          alert("Session expired");
+          localStorage.removeItem("token");
+          window.location.href = "index.html";
+        }
+      }
+
+      getUser();
+
+      document.getElementById("logoutBtn").onclick = () => {
+        localStorage.removeItem("token");
+        window.location.href = "index.html";
+      };
+    </script>
+  </body>
+</html>

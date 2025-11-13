@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const authController = require("../controllers/auth");
-// const { protect } = require("../middlewares/auth");
+const { protect } = require("../middlewares/auth");
 // const { authorize } = require("../middlewares/auth-role");
 
 // ------------------------
@@ -21,7 +21,7 @@ router.post("/google", authController.googleAuth);
 
 // ------------------------
 // Get logged-in user info
-// router.get("/me", protect, authController.getMe);
+router.get("/me", protect, authController.getMe);
 
 // ------------------------
 // Optional: Admin-only route example

@@ -76,7 +76,7 @@ exports.login = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
-    const ok = await user.matchPassword(password);
+    const ok = await user.comparePassword(password);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
     // Create login notification
@@ -115,11 +115,10 @@ exports.login = async (req, res) => {
  */
 exports.googleAuth = async (req, res) => {
   try {
-    const { tokenId } = req.body;
+    const { tokenId, mode } = req.body; // mode = "register" or "login"
     if (!tokenId)
       return res.status(400).json({ message: "Missing Google token" });
 
-    // Verify Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: tokenId,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -128,8 +127,14 @@ exports.googleAuth = async (req, res) => {
     const { email, name, picture } = ticket.getPayload();
     let user = await User.findOne({ email });
 
-    // Register if user doesn’t exist
-    if (!user) {
+    if (mode === "register") {
+      if (user) {
+        return res
+          .status(400)
+          .json({ message: "User already exists. Please login instead." });
+      }
+
+      // Create new user
       user = await User.create({
         name,
         email,
@@ -142,7 +147,7 @@ exports.googleAuth = async (req, res) => {
       await Notification.create({
         user: user._id,
         title: "Welcome via Google",
-        message: `Your account was created via Google Sign-In.`,
+        message: `Your account was created via Google OAuth.`,
         meta: { userId: user._id },
       });
 
@@ -153,7 +158,18 @@ exports.googleAuth = async (req, res) => {
           message: `${name} joined via Google.`,
           userId: user._id,
         });
-    } else {
+    } else if (mode === "login") {
+      if (!user) {
+        return res
+          .status(404)
+          .json({ message: "User not found. Please register first." });
+      }
+      if (!user.isGoogleUser) {
+        return res
+          .status(400)
+          .json({ message: "Please login using email/password." });
+      }
+
       await Notification.create({
         user: user._id,
         title: "Google Login",
@@ -168,10 +184,12 @@ exports.googleAuth = async (req, res) => {
           message: `${user.name} logged in via Google.`,
           userId: user._id,
         });
+    } else {
+      return res.status(400).json({ message: "Invalid mode" });
     }
 
     res.json({
-      token: genToken(user._id),
+      token: genToken(user),
       user: {
         id: user._id,
         email: user.email,
@@ -183,5 +201,58 @@ exports.googleAuth = async (req, res) => {
   } catch (err) {
     console.error("Google auth error:", err);
     res.status(500).json({ message: "Google authentication failed" });
+  }
+};
+
+/**
+ * @desc Get currently logged-in user
+ * @route GET /api/auth/me
+ * @access Private
+ */
+
+exports.getMe = async (req, res) => {
+  try {
+    // 🔹 Extract token from headers
+    const authHeader = req.header("Authorization");
+    if (!authHeader) {
+      return res
+        .status(401)
+        .json({ success: false, message: "No token provided" });
+    }
+
+    const token = authHeader.replace("Bearer ", "").trim();
+
+    // 🔹 Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // 🔹 Find user
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    // 🔹 Return success response
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        avatar: user.avatar,
+      },
+    });
+  } catch (err) {
+    console.error("GetMe error:", err.message);
+
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ success: false, message: "Token expired" });
+    }
+
+    res
+      .status(401)
+      .json({ success: false, message: "Invalid or missing token" });
   }
 };
