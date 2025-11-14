@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Welcome Aboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+      .container {
+        max-width: 600px;
+        margin: auto;
+        background: #ffffff;
+        padding: 25px;
+        border-radius: 8px;
+      }
+      h2 {
+        color: #333;
+      }
+      p {
+        color: #555;
+      }
+      .btn {
+        background: #1f6feb;
+        color: #fff !important;
+        padding: 12px 18px;
+        border-radius: 6px;
+        text-decoration: none;
+        display: inline-block;
+        margin-top: 15px;
+      }
+      .code-box {
+        margin-top: 20px;
+        padding: 15px;
+        font-size: 24px;
+        font-weight: bold;
+        letter-spacing: 4px;
+        text-align: center;
+        background: #1f6feb;
+        color: white;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Email Verification</h2>
+      <p>
+        Welcome {{Email}}! To complete your registration, please verify your
+        email using the code below:
+      </p>
+
+      <!-- Dynamic verification code -->
+      <div class="code-box">{{CODE}}</div>
+
+      <p>
+        Enter this code in the app to activate your account by clicking the
+        button below.
+      </p>
+
+      <a href="#" class="btn">Verify your account</a>
+    </div>
+  </body>
+</html>

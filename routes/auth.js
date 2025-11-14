@@ -23,6 +23,8 @@ router.post("/google", authController.googleAuth);
 // Get logged-in user info
 router.get("/me", protect, authController.getMe);
 
+// router.get("/send-email", authController.sendEmail);
+
 // ------------------------
 // Optional: Admin-only route example
 // router.get("/all-users", protect, authorize("admin"), authController.getAllUsers);
