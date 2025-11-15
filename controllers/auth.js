@@ -48,7 +48,7 @@ exports.register = async (req, res) => {
     });
 
     // Email the verification code
-    await email(
+    await Email(
       user.email,
       "Verify Your Account",
       "register.html",
@@ -67,7 +67,7 @@ exports.register = async (req, res) => {
       global.io.emit("notification", {
         type: "user_registered",
         title: "New Registration",
-        message: `${name} registered and needs to verify email.`,
+        message: `${email} registered and needs to verify email.`,
         userId: user._id,
       });
 
@@ -94,7 +94,7 @@ exports.verifyAccount = async (req, res) => {
     if (user.isVerified)
       return res.status(400).json({ message: "Account already verified" });
 
-    if (user.verificationCode !== code)
+    if (user.verificationCode !== Number(code))
       return res.status(400).json({ message: "Invalid verification code" });
 
     user.isVerified = true;
@@ -102,7 +102,7 @@ exports.verifyAccount = async (req, res) => {
     await user.save();
 
     // Email the verification code
-    await email(
+    await Email(
       user.email,
       "Verify Your Account",
       "verify.html",
@@ -120,7 +120,7 @@ exports.verifyAccount = async (req, res) => {
       global.io.emit("notification", {
         type: "user_registered",
         title: "New Registration",
-        message: `${name} registered and needs to verify email.`,
+        message: `${email} registered and verified successfully.`,
         userId: user._id,
       });
 
@@ -155,7 +155,7 @@ exports.login = async (req, res) => {
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
     // Email the verification code
-    await email(
+    await Email(
       user.email,
       "Login Successful",
       "login.html",
@@ -195,9 +195,136 @@ exports.login = async (req, res) => {
 /**
  * @desc Google OAuth register/login
  */
+
+// exports.googleAuth = async (req, res) => {
+//   try {
+//     const { tokenId, mode } = req.body; // mode = "register" or "login"
+
+//     if (!tokenId) {
+//       return res.status(400).json({ message: "Missing Google token" });
+//     }
+
+//     if (!["register", "login"].includes(mode)) {
+//       return res.status(400).json({ message: "Invalid mode" });
+//     }
+
+//     const ticket = await googleClient.verifyIdToken({
+//       idToken: tokenId,
+//       audience: process.env.GOOGLE_CLIENT_ID,
+//     });
+
+//     const { email, name, picture } = ticket.getPayload();
+//     let user = await User.findOne({ email });
+
+//     if (mode === "register") {
+//       if (user) {
+//         return res
+//           .status(400)
+//           .json({ message: "User already exists. Please login instead." });
+//       }
+
+//       // Generate 6-digit verification code
+//       const verificationCode = String(
+//         Math.floor(100000 + Math.random() * 900000)
+//       ).padStart(6, "0");
+
+//       // Create new Google user (not verified yet)
+//       user = await User.create({
+//         name,
+//         email,
+//         password: "GOOGLE_AUTH_PLACEHOLDER",
+//         role: "user",
+//         avatar: picture,
+//         isGoogleUser: true,
+//         isVerified: false,
+//         verificationCode,
+//       });
+
+//       // Send verification email
+//       await Email(email, "Verify Your Account", "verify.html", {
+//         CODE: verificationCode,
+//       });
+
+//       await Notification.create({
+//         user: user._id,
+//         title: "Verify Your Email",
+//         message: `Hello ${name}, please verify your email to activate your account.`,
+//         meta: { userId: user._id },
+//       });
+
+//       if (global.io)
+//         global.io.emit("notification", {
+//           type: "google_register",
+//           title: "Google Registration",
+//           message: `${name} joined via Google. Verification email sent.`,
+//           userId: user._id,
+//         });
+
+//       return res.status(201).json({
+//         message:
+//           "Account created via Google. Verification code sent to your email.",
+//         userId: user._id,
+//       });
+//     }
+
+//     if (mode === "login") {
+//       if (!user) {
+//         return res
+//           .status(404)
+//           .json({ message: "User not found. Please register first." });
+//       }
+
+//       if (!user.isGoogleUser) {
+//         return res
+//           .status(400)
+//           .json({ message: "Please login using email/password." });
+//       }
+
+//       // Block login if not verified
+//       if (!user.isVerified) {
+//         return res.status(401).json({
+//           message: "Please verify your email before logging in.",
+//         });
+//       }
+
+//       // Send login email
+//       await Email(email, "Login Successful", "login.html", { EMAIL: email });
+
+//       await Notification.create({
+//         user: user._id,
+//         title: "Google Login",
+//         message: `You logged in successfully via Google.`,
+//         meta: { userId: user._id },
+//       });
+
+//       if (global.io)
+//         global.io.emit("notification", {
+//           type: "google_login",
+//           title: "Google Login",
+//           message: `${user.name} logged in via Google.`,
+//           userId: user._id,
+//         });
+
+//       return res.json({
+//         token: genToken(user),
+//         user: {
+//           id: user._id,
+//           email: user.email,
+//           name: user.name,
+//           role: user.role,
+//           avatar: user.avatar,
+//         },
+//       });
+//     }
+//   } catch (err) {
+//     console.error("Google auth error:", err);
+//     res.status(500).json({ message: "Google authentication failed" });
+//   }
+// };
+
 exports.googleAuth = async (req, res) => {
   try {
-    const { tokenId, mode } = req.body; // mode = "register" or "login"
+    const { tokenId, mode } = req.body; // "register" or "login"
 
     if (!tokenId) {
       return res.status(400).json({ message: "Missing Google token" });
@@ -207,6 +334,7 @@ exports.googleAuth = async (req, res) => {
       return res.status(400).json({ message: "Invalid mode" });
     }
 
+    // 🔍 Verify Google token
     const ticket = await googleClient.verifyIdToken({
       idToken: tokenId,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -215,35 +343,45 @@ exports.googleAuth = async (req, res) => {
     const { email, name, picture } = ticket.getPayload();
     let user = await User.findOne({ email });
 
+    // =====================================
+    // 🔵 REGISTER MODE
+    // =====================================
     if (mode === "register") {
       if (user) {
-        return res
-          .status(400)
-          .json({ message: "User already exists. Please login instead." });
+        return res.status(400).json({
+          message: "User already exists. Please login instead.",
+        });
       }
 
-      // Generate 6-digit verification code
+      // Generate verification code
       const verificationCode = String(
         Math.floor(100000 + Math.random() * 900000)
-      ).padStart(6, "0");
+      );
 
-      // Create new Google user (not verified yet)
+      // Create user
       user = await User.create({
         name,
         email,
-        password: "GOOGLE_AUTH_PLACEHOLDER",
-        role: "user",
+        password: "GOOGLE_AUTH_PLACEHOLDER", // will be skipped because isGoogleUser = true
         avatar: picture,
         isGoogleUser: true,
         isVerified: false,
         verificationCode,
       });
 
-      // Send verification email
-      await email(email, "Verify Your Account", "verify.html", {
-        CODE: verificationCode,
-      });
+      // Email the verification code
+      try {
+        await Email(
+          user.email,
+          "Verify Your Account",
+          "register.html",
+          { EMAIL: email, CODE: verificationCode } // dynamic value
+        );
+      } catch (mailErr) {
+        console.error("Email sending failed:", mailErr);
+      }
 
+      // 🔔 Create notification inside DB
       await Notification.create({
         user: user._id,
         title: "Verify Your Email",
@@ -251,26 +389,32 @@ exports.googleAuth = async (req, res) => {
         meta: { userId: user._id },
       });
 
-      if (global.io)
+      // 🔔 Emit socket notification
+      if (global.io) {
         global.io.emit("notification", {
           type: "google_register",
           title: "Google Registration",
           message: `${name} joined via Google. Verification email sent.`,
           userId: user._id,
         });
+      }
 
       return res.status(201).json({
+        success: true,
         message:
           "Account created via Google. Verification code sent to your email.",
         userId: user._id,
       });
     }
 
+    // =====================================
+    // 🟢 LOGIN MODE
+    // =====================================
     if (mode === "login") {
       if (!user) {
-        return res
-          .status(404)
-          .json({ message: "User not found. Please register first." });
+        return res.status(404).json({
+          message: "User not found. Please register first.",
+        });
       }
 
       if (!user.isGoogleUser) {
@@ -279,16 +423,22 @@ exports.googleAuth = async (req, res) => {
           .json({ message: "Please login using email/password." });
       }
 
-      // Block login if not verified
       if (!user.isVerified) {
-        return res.status(401).json({
-          message: "Please verify your email before logging in.",
-        });
+        return res
+          .status(401)
+          .json({ message: "Please verify your email before logging in." });
       }
 
-      // Send login email
-      await email(email, "Login Successful", "login.html", { EMAIL: email });
+      // 📧 Send login email
+      try {
+        await Email(email, "Login Successful", "login.html", {
+          EMAIL: email,
+        });
+      } catch (mailErr) {
+        console.error("Login email failed:", mailErr);
+      }
 
+      // 🔔 Store notification
       await Notification.create({
         user: user._id,
         title: "Google Login",
@@ -296,16 +446,19 @@ exports.googleAuth = async (req, res) => {
         meta: { userId: user._id },
       });
 
-      if (global.io)
+      // 🔔 Emit real-time socket message
+      if (global.io) {
         global.io.emit("notification", {
           type: "google_login",
           title: "Google Login",
           message: `${user.name} logged in via Google.`,
           userId: user._id,
         });
+      }
 
       return res.json({
-        token: genToken(user),
+        success: true,
+        token: genToken(user._id), // FIXED 🔥
         user: {
           id: user._id,
           email: user.email,
@@ -317,7 +470,10 @@ exports.googleAuth = async (req, res) => {
     }
   } catch (err) {
     console.error("Google auth error:", err);
-    res.status(500).json({ message: "Google authentication failed" });
+    return res.status(500).json({
+      message: "Google authentication failed",
+      error: err.message,
+    });
   }
 };
 

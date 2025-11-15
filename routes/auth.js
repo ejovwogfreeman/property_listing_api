@@ -10,6 +10,11 @@ const { protect } = require("../middlewares/auth");
 router.post("/register", authController.register);
 
 // ------------------------
+// Account Verification
+// Body: { email, code }
+router.post("/verify", authController.verifyAccount);
+
+// ------------------------
 // Normal login
 // Body: { email, password }
 router.post("/login", authController.login);

@@ -15,7 +15,7 @@ async function handleGoogleRegister(response) {
     if (res.ok) {
       localStorage.setItem("token", data.token);
       alert("Registration via Google successful!");
-      window.location.href = "dashboard.html";
+      window.location.href = "verify.html";
     } else {
       alert(data.message || "Google registration failed");
     }
