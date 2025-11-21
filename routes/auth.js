@@ -1,37 +1,44 @@
 const express = require("express");
 const router = express.Router();
-const authController = require("../controllers/auth");
+// const authController = require("../controllers/auth");
+const {
+  register,
+  verifyAccount,
+  login,
+  googleAuth,
+  getMe,
+} = require("../controllers/auth");
 const { protect } = require("../middlewares/auth");
 // const { authorize } = require("../middlewares/auth-role");
 
 // ------------------------
 // Normal registration
 // Body: { name, email, password, role }
-router.post("/register", authController.register);
+router.post("/register", register);
 
 // ------------------------
 // Account Verification
 // Body: { email, code }
-router.post("/verify", authController.verifyAccount);
+router.post("/verify", verifyAccount);
 
 // ------------------------
 // Normal login
 // Body: { email, password }
-router.post("/login", authController.login);
+router.post("/login", login);
 
 // ------------------------
 // Google OAuth login
 // Body: { tokenId } (from Google Sign-In)
-router.post("/google", authController.googleAuth);
+router.post("/google", googleAuth);
 
 // ------------------------
 // Get logged-in user info
-router.get("/me", protect, authController.getMe);
+router.get("/me", protect, getMe);
 
-// router.get("/send-email", authController.sendEmail);
+// router.get("/send-email", sendEmail);
 
 // ------------------------
 // Optional: Admin-only route example
-// router.get("/all-users", protect, authorize("admin"), authController.getAllUsers);
+// router.get("/all-users", protect, authorize("admin"), getAllUsers);
 
 module.exports = router;

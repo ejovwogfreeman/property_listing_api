@@ -1,28 +1,126 @@
 const Property = require("../models/property");
 const Notification = require("../models/notification");
+const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 
 /**
  * @desc Create a new property
  */
-exports.createProperty = async (req, res) => {
+
+// createProperty = async (req, res) => {
+//   try {
+//     // const { title } = req.body;
+//     const { title, description, price, address } = req.body;
+//     const owner = req.user._id;
+
+//     // let images = [];
+//     // let video = null;
+
+//     // // Upload images
+//     // if (req.files?.images) {
+//     //   const imageUploads = req.files.images.map(
+//     //     (file) =>
+//     //       new Promise((resolve, reject) => {
+//     //         cloudinary.uploader
+//     //           .upload_stream(
+//     //             {
+//     //               folder: "realestate/images",
+//     //               resource_type: "image",
+//     //               transformation: [{ width: 1600, quality: "auto" }],
+//     //             },
+//     //             (error, result) => {
+//     //               if (error) return reject(error);
+//     //               resolve(result.secure_url);
+//     //             }
+//     //           )
+//     //           .end(file.buffer);
+//     //       })
+//     //   );
+
+//     //   images = await Promise.all(imageUploads);
+//     // }
+
+//     // // Upload video
+//     // if (req.files?.video?.[0]) {
+//     //   const file = req.files.video[0];
+//     //   video = await new Promise((resolve, reject) => {
+//     //     cloudinary.uploader
+//     //       .upload_stream(
+//     //         {
+//     //           folder: "realestate/videos",
+//     //           resource_type: "video",
+//     //           transformation: [{ quality: "auto" }, { height: 720 }],
+//     //         },
+//     //         (error, result) => {
+//     //           if (error) return reject(error);
+//     //           resolve(result.secure_url);
+//     //         }
+//     //       )
+//     //       .end(file.buffer);
+//     //   });
+//     // }
+
+//     // Upload images
+//     const images = req.files?.images
+//       ? await uploadImages(req.files.images)
+//       : [];
+//     // Upload video
+//     const video = req.files?.video?.[0]
+//       ? await uploadVideos(req.files.video[0])
+//       : null;
+
+//     // Create property
+//     // const prop = await Property.create({ title, images, video });
+//     const prop = await Property.create({
+//       title,
+//       description,
+//       price,
+//       address,
+//       images,
+//       video,
+//       owner,
+//     });
+
+//     // Create notification
+//     await Notification.create({
+//       user: owner,
+//       title: "Property Created",
+//       message: `Your property "${title}" was created successfully.`,
+//       meta: { propertyId: prop._id },
+//     });
+
+//     // Broadcast
+//     if (global.io)
+//       global.io.emit("notification", {
+//         type: "property_created",
+//         title: "New Property Listed",
+//         message: `New property "${title}" just got listed.`,
+//         propertyId: prop._id,
+//       });
+
+//     res.status(201).json({ success: true, property: prop });
+//   } catch (err) {
+//     console.error("createProperty error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+const createProperty = async (req, res) => {
   try {
     const { title, description, price, address } = req.body;
     const owner = req.user._id;
 
-    // multer-cloudinary yields req.files.images and req.files.video arrays
-    const images =
-      req.files && req.files["images"]
-        ? req.files["images"].map(
-            (f) => f.path || f.url || f.secure_url || f.location || ""
-          )
-        : [];
+    // Upload images (multiple)
+    const images = req.files?.images
+      ? await uploadImages(req.files.images)
+      : [];
 
-    let video = null;
-    if (req.files && req.files["video"] && req.files["video"][0]) {
-      const v = req.files["video"][0];
-      video = v.path || v.url || v.secure_url || v.location || null;
-    }
+    // Upload video (single)
+    const videoUrls = req.files?.video
+      ? await uploadVideos(req.files.video)
+      : [];
+    const video = videoUrls[0] || null;
 
+    // Create property
     const prop = await Property.create({
       title,
       description,
@@ -33,7 +131,7 @@ exports.createProperty = async (req, res) => {
       owner,
     });
 
-    // Persist notification
+    // Create notification
     await Notification.create({
       user: owner,
       title: "Property Created",
@@ -41,7 +139,7 @@ exports.createProperty = async (req, res) => {
       meta: { propertyId: prop._id },
     });
 
-    // Broadcast real-time
+    // Broadcast
     if (global.io)
       global.io.emit("notification", {
         type: "property_created",
@@ -53,14 +151,14 @@ exports.createProperty = async (req, res) => {
     res.status(201).json({ success: true, property: prop });
   } catch (err) {
     console.error("createProperty error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
 /**
  * @desc Get all properties
  */
-exports.listProperties = async (req, res) => {
+listProperties = async (req, res) => {
   try {
     const props = await Property.find().populate("owner", "name email role");
     res.json({ success: true, properties: props });
@@ -73,7 +171,7 @@ exports.listProperties = async (req, res) => {
 /**
  * @desc Get single property
  */
-exports.getProperty = async (req, res) => {
+getProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id).populate(
       "owner",
@@ -110,7 +208,7 @@ exports.getProperty = async (req, res) => {
 /**
  * @desc Update property
  */
-exports.updateProperty = async (req, res) => {
+updateProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id);
     if (!prop)
@@ -175,7 +273,7 @@ exports.updateProperty = async (req, res) => {
 /**
  * @desc Delete property
  */
-exports.deleteProperty = async (req, res) => {
+deleteProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id);
     if (!prop)
@@ -216,4 +314,12 @@ exports.deleteProperty = async (req, res) => {
     console.error("deleteProperty error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
+};
+
+module.exports = {
+  createProperty,
+  listProperties,
+  getProperty,
+  updateProperty,
+  deleteProperty,
 };

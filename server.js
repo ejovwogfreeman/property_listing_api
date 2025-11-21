@@ -24,6 +24,11 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// ✅ Add multer for global form-data parsing (files + text)
+const multer = require("multer");
+const upload = multer();
+// app.use(upload.none());
+
 // Connect MongoDB
 connectDB();
 

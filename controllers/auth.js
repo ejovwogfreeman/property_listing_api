@@ -20,7 +20,7 @@ const genToken = (user) => {
 /**
  * @desc Register user + send verification code
  */
-exports.register = async (req, res) => {
+register = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
@@ -84,7 +84,7 @@ exports.register = async (req, res) => {
 /**
  * @desc Verify account with code
  */
-exports.verifyAccount = async (req, res) => {
+verifyAccount = async (req, res) => {
   try {
     const { email, code } = req.body;
 
@@ -118,8 +118,8 @@ exports.verifyAccount = async (req, res) => {
 
     if (global.io)
       global.io.emit("notification", {
-        type: "user_registered",
-        title: "New Registration",
+        type: "user_verified",
+        title: "New User Verified",
         message: `${email} registered and verified successfully.`,
         userId: user._id,
       });
@@ -134,7 +134,7 @@ exports.verifyAccount = async (req, res) => {
 /**
  * @desc Login with email/password
  */
-exports.login = async (req, res) => {
+login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -196,133 +196,7 @@ exports.login = async (req, res) => {
  * @desc Google OAuth register/login
  */
 
-// exports.googleAuth = async (req, res) => {
-//   try {
-//     const { tokenId, mode } = req.body; // mode = "register" or "login"
-
-//     if (!tokenId) {
-//       return res.status(400).json({ message: "Missing Google token" });
-//     }
-
-//     if (!["register", "login"].includes(mode)) {
-//       return res.status(400).json({ message: "Invalid mode" });
-//     }
-
-//     const ticket = await googleClient.verifyIdToken({
-//       idToken: tokenId,
-//       audience: process.env.GOOGLE_CLIENT_ID,
-//     });
-
-//     const { email, name, picture } = ticket.getPayload();
-//     let user = await User.findOne({ email });
-
-//     if (mode === "register") {
-//       if (user) {
-//         return res
-//           .status(400)
-//           .json({ message: "User already exists. Please login instead." });
-//       }
-
-//       // Generate 6-digit verification code
-//       const verificationCode = String(
-//         Math.floor(100000 + Math.random() * 900000)
-//       ).padStart(6, "0");
-
-//       // Create new Google user (not verified yet)
-//       user = await User.create({
-//         name,
-//         email,
-//         password: "GOOGLE_AUTH_PLACEHOLDER",
-//         role: "user",
-//         avatar: picture,
-//         isGoogleUser: true,
-//         isVerified: false,
-//         verificationCode,
-//       });
-
-//       // Send verification email
-//       await Email(email, "Verify Your Account", "verify.html", {
-//         CODE: verificationCode,
-//       });
-
-//       await Notification.create({
-//         user: user._id,
-//         title: "Verify Your Email",
-//         message: `Hello ${name}, please verify your email to activate your account.`,
-//         meta: { userId: user._id },
-//       });
-
-//       if (global.io)
-//         global.io.emit("notification", {
-//           type: "google_register",
-//           title: "Google Registration",
-//           message: `${name} joined via Google. Verification email sent.`,
-//           userId: user._id,
-//         });
-
-//       return res.status(201).json({
-//         message:
-//           "Account created via Google. Verification code sent to your email.",
-//         userId: user._id,
-//       });
-//     }
-
-//     if (mode === "login") {
-//       if (!user) {
-//         return res
-//           .status(404)
-//           .json({ message: "User not found. Please register first." });
-//       }
-
-//       if (!user.isGoogleUser) {
-//         return res
-//           .status(400)
-//           .json({ message: "Please login using email/password." });
-//       }
-
-//       // Block login if not verified
-//       if (!user.isVerified) {
-//         return res.status(401).json({
-//           message: "Please verify your email before logging in.",
-//         });
-//       }
-
-//       // Send login email
-//       await Email(email, "Login Successful", "login.html", { EMAIL: email });
-
-//       await Notification.create({
-//         user: user._id,
-//         title: "Google Login",
-//         message: `You logged in successfully via Google.`,
-//         meta: { userId: user._id },
-//       });
-
-//       if (global.io)
-//         global.io.emit("notification", {
-//           type: "google_login",
-//           title: "Google Login",
-//           message: `${user.name} logged in via Google.`,
-//           userId: user._id,
-//         });
-
-//       return res.json({
-//         token: genToken(user),
-//         user: {
-//           id: user._id,
-//           email: user.email,
-//           name: user.name,
-//           role: user.role,
-//           avatar: user.avatar,
-//         },
-//       });
-//     }
-//   } catch (err) {
-//     console.error("Google auth error:", err);
-//     res.status(500).json({ message: "Google authentication failed" });
-//   }
-// };
-
-exports.googleAuth = async (req, res) => {
+googleAuth = async (req, res) => {
   try {
     const { tokenId, mode } = req.body; // "register" or "login"
 
@@ -480,7 +354,7 @@ exports.googleAuth = async (req, res) => {
 /**
  * @desc Get logged-in user
  */
-exports.getMe = async (req, res) => {
+getMe = async (req, res) => {
   try {
     const authHeader = req.header("Authorization");
     if (!authHeader)
@@ -504,4 +378,12 @@ exports.getMe = async (req, res) => {
 
     res.status(401).json({ message: "Invalid or missing token" });
   }
+};
+
+module.exports = {
+  register,
+  verifyAccount,
+  login,
+  googleAuth,
+  getMe,
 };
