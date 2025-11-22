@@ -1,12 +1,14 @@
 const express = require("express");
 const router = express.Router();
-const { protect } = require("../middleware/auth");
+const { protect, authorize } = require("../middleware/auth");
 const {
   requestPurchase,
   initializePurchasePayment,
   verifyPurchasePayment,
   getPurchaseDetails,
-  getPurchases,
+  getUserPurchases,
+  getAdminPurchases,
+  getAllPurchases,
 } = require("../controllers/purchaseController");
 
 // ---------------------------
@@ -26,6 +28,22 @@ router.post("/purchase/verify-payment", protect, verifyPurchasePayment);
 router.get("/purchase/:purchaseId", protect, getPurchaseDetails);
 
 // Get All Purchases
-router.get("/inspection/my-purchases", protect, getPurchases);
+router.get("/inspection/my-purchases", protect, getUserPurchases);
+
+// Get All Purchases
+router.get(
+  "/inspection/my-purchases",
+  protect,
+  authorize("agent"),
+  getAgentPurchases
+);
+
+// Get All Purchases
+router.get(
+  "/inspection/my-purchases",
+  protect,
+  authorize("admin"),
+  getAllPurchases
+);
 
 module.exports = router;

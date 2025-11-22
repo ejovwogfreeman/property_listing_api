@@ -6,7 +6,7 @@ const Notification = require("../models/Notification");
 const {
   initializeTransaction,
   verifyTransaction,
-} = require("../utils/paystack");
+} = require("../middlewares/paystack");
 const crypto = require("crypto");
 
 // ---------------------------
@@ -196,7 +196,7 @@ getPurchaseDetails = async (req, res) => {
 // ---------------------------
 // Get All Purchases for Logged-in User
 // ---------------------------
-getPurchases = async (req, res) => {
+getUserPurchases = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -214,10 +214,65 @@ getPurchases = async (req, res) => {
   }
 };
 
+// Get all purchases of properties managed by the logged-in agent
+getAgentPurchases = async (req, res) => {
+  try {
+    const agentId = req.user._id;
+
+    // Fetch properties where the logged-in user is the agent
+    const properties = await Property.find(
+      { agent: agentId },
+      "_id title price address"
+    );
+    const propertyIds = properties.map((p) => p._id);
+
+    // Get purchases for these properties
+    const purchases = await Purchase.find({ property: { $in: propertyIds } })
+      .populate("property", "title price address")
+      .populate("buyer", "name email")
+      .populate("owner", "name email")
+      .populate("inspection")
+      .populate("escrowHeldBy", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      properties,
+      purchases,
+    });
+  } catch (err) {
+    console.error("getAgentPurchases error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get all purchases in the system
+getAllPurchases = async (req, res) => {
+  try {
+    const purchases = await Purchase.find()
+      .populate("property", "title price address")
+      .populate("buyer", "name email")
+      .populate("owner", "name email")
+      .populate("inspection")
+      .populate("escrowHeldBy", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      purchases,
+    });
+  } catch (err) {
+    console.error("getAllPurchases error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   requestPurchase,
   initializePurchasePayment,
   verifyPurchasePayment,
   getPurchaseDetails,
-  getPurchases,
+  getUserPurchases,
+  getAgentPurchases,
+  getAllPurchases,
 };

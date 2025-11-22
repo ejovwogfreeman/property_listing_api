@@ -2,11 +2,11 @@ const Inspection = require("../models/Inspection");
 const Property = require("../models/Property");
 const User = require("../models/User");
 const Notification = require("../models/Notification");
-const { generateCode } = require("../utils/codeGenerator");
+const { generateCode } = require("../middlewares/codeGenerator");
 const {
   initializeTransaction,
   verifyTransaction,
-} = require("../utils/paystack");
+} = require("../middlewares/paystack");
 const crypto = require("crypto");
 
 // ---------------------------
@@ -241,7 +241,7 @@ getInspectionDetails = async (req, res) => {
 // ---------------------------
 // Get All Inspections for Logged-in User
 // ---------------------------
-getInspections = async (req, res) => {
+getUserInspections = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -258,11 +258,66 @@ getInspections = async (req, res) => {
   }
 };
 
+// Get all inspections of properties managed by the logged-in agent
+getAgentInspections = async (req, res) => {
+  try {
+    const agentId = req.user._id;
+
+    // Fetch properties where the logged-in user is the agent
+    const properties = await Property.find(
+      { agent: agentId },
+      "_id title price address"
+    );
+    const propertyIds = properties.map((p) => p._id);
+
+    // Get inspections for these properties
+    const inspections = await Inspection.find({
+      property: { $in: propertyIds },
+    })
+      .populate("property", "title price address")
+      .populate("user", "name email") // requester
+      .populate("owner", "name email") // property owner
+      .populate("escrowHeldBy", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      properties,
+      inspections,
+    });
+  } catch (err) {
+    console.error("getAgentInspections error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get all inspections in the system
+getAllInspections = async (req, res) => {
+  try {
+    const inspections = await Inspection.find()
+      .populate("property", "title price address")
+      .populate("user", "name email") // requester
+      .populate("owner", "name email") // property owner
+      .populate("escrowHeldBy", "name email") // admin
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      inspections,
+    });
+  } catch (err) {
+    console.error("getAllInspections error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   requestInspection,
   verifyInspectionCode,
   initializeInspectionPayment,
   verifyInspectionPayment,
   getInspectionDetails,
-  getInspections,
+  getUserInspections,
+  getAgentInspections,
+  getAllInspections,
 };

@@ -6,9 +6,11 @@ const {
   initializeInspectionPayment,
   verifyInspectionPayment,
   getInspectionDetails,
-  getInspections,
+  getUserInspections,
+  getAgentInspections,
+  getAllInspections,
 } = require("../controllers/inspectionController");
-const { protect } = require("../middleware/auth"); // your protect middleware
+const { protect, authorize } = require("../middleware/auth"); // your protect middleware
 
 // ---------------------------
 // 1️⃣ Request Inspection
@@ -45,9 +47,29 @@ router.post("/inspection/verify-payment", protect, verifyInspectionPayment);
 router.get("/inspection/:inspectionId", protect, getInspectionDetails);
 
 // ---------------------------
-// Get All Inspections
+// Get All Inspections of loggedn in user
 // GET /api/inspections
 // ---------------------------
-router.get("/inspection/my-inspections", protect, getInspections);
+router.get("/inspection/user-inspections", protect, getUserInspections);
+
+// ---------------------------
+// Get All Inspections of loggedn in agent
+// ---------------------------
+router.get(
+  "/inspection/agent-inspections",
+  protect,
+  authorize("agent"),
+  getAgentInspections
+);
+
+// ---------------------------
+// Get All Inspections of loggedn in agent
+// ---------------------------
+router.get(
+  "/inspection/all-inspections",
+  protect,
+  authorize("admin"),
+  getAllInspections
+);
 
 module.exports = router;
