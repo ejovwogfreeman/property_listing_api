@@ -3,6 +3,7 @@ const Notification = require("../models/notification");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const Email = require("../middlewares/email");
+const generateCode = require("../middlewares/generateCode");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -33,9 +34,7 @@ register = async (req, res) => {
       return res.status(400).json({ message: "Email already exists" });
 
     // Generate verification code
-    const verificationCode = String(
-      Math.floor(100000 + Math.random() * 900000)
-    ).padStart(6, "0");
+    const verificationCode = generateCode();
 
     const user = await User.create({
       name,
@@ -228,9 +227,7 @@ googleAuth = async (req, res) => {
       }
 
       // Generate verification code
-      const verificationCode = String(
-        Math.floor(100000 + Math.random() * 900000)
-      );
+      const verificationCode = generateCode();
 
       // Create user
       user = await User.create({

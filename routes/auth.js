@@ -9,12 +9,12 @@ const {
   getMe,
 } = require("../controllers/auth");
 const { protect } = require("../middlewares/auth");
-// const { authorize } = require("../middlewares/auth-role");
+const { uploadNone } = require("../middlewares/upload");
 
 // ------------------------
 // Normal registration
 // Body: { name, email, password, role }
-router.post("/register", register);
+router.post("/register", uploadNone, register);
 
 // ------------------------
 // Account Verification
@@ -24,7 +24,7 @@ router.post("/verify", verifyAccount);
 // ------------------------
 // Normal login
 // Body: { email, password }
-router.post("/login", login);
+router.post("/login", uploadNone, login);
 
 // ------------------------
 // Google OAuth login

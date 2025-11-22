@@ -5,6 +5,7 @@ const PropertySchema = new Schema({
   title: { type: String, required: true },
   description: String,
   price: Number,
+  inspectionFee: Number,
   address: String,
   images: [String], // cloudinary URLs
   video: String, // cloudinary URL
@@ -18,3 +19,5 @@ const PropertySchema = new Schema({
 });
 
 module.exports = mongoose.model("Property", PropertySchema);
+
+// please remember to write a controller function where property status can be set to pending, available, sold, rented etc

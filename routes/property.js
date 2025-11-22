@@ -9,7 +9,7 @@ const {
   deleteProperty,
 } = require("../controllers/property");
 const { protect, authorize } = require("../middlewares/auth");
-const { uploadPropertyFiles } = require("../middlewares/upload");
+const { uploadPropertyFiles, uploadNone } = require("../middlewares/upload");
 
 // // ------------------------
 // // Create a property
@@ -37,7 +37,13 @@ router.get("/:id", protect, getProperty);
 // Update property by ID
 // Only admin or agent
 // Upload new images/video if any
-router.put("/:id", protect, authorize("admin", "agent"), updateProperty);
+router.put(
+  "/:id",
+  protect,
+  authorize("admin", "agent"),
+  uploadNone,
+  updateProperty
+);
 
 // ------------------------
 // Delete property by ID

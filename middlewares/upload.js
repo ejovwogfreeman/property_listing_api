@@ -8,6 +8,10 @@ const uploadPropertyFiles = multer({
   { name: "video", maxCount: 1 },
 ]);
 
+// For routes that use FormData but DO NOT upload files
+const uploadNone = multer({ storage }).none();
+
 module.exports = {
   uploadPropertyFiles,
+  uploadNone,
 };
