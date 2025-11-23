@@ -348,35 +348,6 @@ googleAuth = async (req, res) => {
   }
 };
 
-/**
- * @desc Get logged-in user
- */
-getMe = async (req, res) => {
-  try {
-    const authHeader = req.header("Authorization");
-    if (!authHeader)
-      return res.status(401).json({ message: "No token provided" });
-
-    const token = authHeader.replace("Bearer ", "").trim();
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const user = await User.findById(decoded.id).select("-password");
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    res.json({
-      success: true,
-      user,
-    });
-  } catch (err) {
-    console.error("GetMe error:", err.message);
-
-    if (err.name === "TokenExpiredError")
-      return res.status(401).json({ message: "Token expired" });
-
-    res.status(401).json({ message: "Invalid or missing token" });
-  }
-};
-
 module.exports = {
   register,
   verifyAccount,

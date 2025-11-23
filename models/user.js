@@ -10,6 +10,9 @@ const UserSchema = new mongoose.Schema({
   verificationCode: { type: Number, default: false },
   isVerified: { type: Boolean, default: false },
   balance: { type: Number, default: 0 },
+  address: { type: String, required: true },
+  phoneNumber: { type: String, required: true },
+  profilePicture: String,
   createdAt: { type: Date, default: Date.now },
 });
 
