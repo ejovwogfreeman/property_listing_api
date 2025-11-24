@@ -1,6 +1,6 @@
 // socket.js
-const Notification = require("./models/notification");
-const Message = require("./models/message");
+const Notification = require("../models/notification");
+const Message = require("../models/message");
 
 /**
  * Initialize Socket.IO

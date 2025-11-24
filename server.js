@@ -12,7 +12,7 @@ const authRoutes = require("./routes/auth");
 const propertyRoutes = require("./routes/property");
 const chatRoutes = require("./routes/chat");
 const notificationRoutes = require("./routes/notification");
-const escrowRoutes = require("./routes/escrow");
+// const escrowRoutes = require("./routes/escrow");
 
 // Import socket handler
 const socketHandler = require("./middlewares/socket");
@@ -49,8 +49,8 @@ app.get("/api", (req, res) => res.send("RealEstate API is running 🚀"));
 app.use("/api/auth", authRoutes);
 app.use("/api/property", propertyRoutes);
 app.use("/api/chat", chatRoutes);
-app.use("/api/notification", notificationRoutes);
-app.use("/api/escrow", escrowRoutes);
+// app.use("/api/notification", notificationRoutes);
+// app.use("/api/escrow", escrowRoutes);
 
 // ------------------------
 // Socket.IO setup

@@ -11,6 +11,8 @@ const EscrowSchema = new Schema({
     enum: ["pending", "approved", "released", "cancelled"],
     default: "pending",
   },
+  type: String,
+  reference: String,
   createdAt: { type: Date, default: Date.now },
 });
 

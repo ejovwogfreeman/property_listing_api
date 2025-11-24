@@ -22,4 +22,6 @@ const MessageSchema = new Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Message", MessageSchema);
+// FIX: Prevent OverwriteModelError
+module.exports =
+  mongoose.models.Message || mongoose.model("Message", MessageSchema);

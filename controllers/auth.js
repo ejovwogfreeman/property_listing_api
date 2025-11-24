@@ -353,5 +353,4 @@ module.exports = {
   verifyAccount,
   login,
   googleAuth,
-  getMe,
 };

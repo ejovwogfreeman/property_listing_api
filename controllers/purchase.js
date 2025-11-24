@@ -2,6 +2,7 @@ const Purchase = require("../models/Purchase");
 const Property = require("../models/Property");
 const Inspection = require("../models/Inspection");
 const User = require("../models/User");
+const Escrow = require("../models/Escrow");
 const Notification = require("../models/Notification");
 const {
   initializeTransaction,
@@ -80,29 +81,94 @@ initializePurchasePayment = async (req, res) => {
     const { purchaseId } = req.body;
     const buyerId = req.user._id;
 
+    // Find purchase
     const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase)
       return res.status(404).json({ message: "Purchase not found" });
+
     if (purchase.buyer.toString() !== buyerId.toString())
       return res.status(403).json({ message: "Unauthorized" });
+
     if (purchase.feePaid)
       return res.status(400).json({ message: "Purchase already paid" });
 
-    // Generate unique reference
+    // Generate Paystack reference
     const reference = crypto.randomBytes(16).toString("hex");
 
-    // Initialize Paystack transaction
+    // Initialize Paystack
     const init = await initializeTransaction(
       req.user.email,
       purchase.price * 100,
       reference
     );
 
+    // ------------------------------
+    // CREATE ESCROW IMMEDIATELY
+    // ------------------------------
+    const escrow = await Escrow.create({
+      reference: reference,
+      property: purchase.property,
+      buyer: purchase.buyer,
+      seller: purchase.owner,
+      amount: purchase.price,
+      status: "pending",
+      type: "inspection",
+    });
+
+    // ------------------------------
+    // NOTIFICATIONS
+    // ------------------------------
+
+    // Notify Buyer
+    await Notification.create({
+      user: buyerId,
+      title: "Purchase Payment Initiated",
+      message: `Your payment for purchase is initializing. Escrow has been created.`,
+      meta: { purchaseId, escrowId: escrow._id },
+    });
+
+    // Notify Seller
+    await Notification.create({
+      user: purchase.owner,
+      title: "Purchase Payment Started",
+      message: `A buyer has initiated payment for your property. Funds will be held in escrow.`,
+      meta: { purchaseId, escrowId: escrow._id },
+    });
+
+    // Notify Admin
+    const adminUser = await User.findOne({ role: "admin" });
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "New Purchase Escrow",
+        message: `A new purchase payment has been initiated and escrow created.`,
+        meta: { purchaseId, escrowId: escrow._id },
+      });
+    }
+
+    // ------------------------------
+    // SOCKET EVENTS
+    // ------------------------------
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "purchase_payment_initialized",
+        title: "Purchase Payment Started",
+        message: "A new purchase transaction has begun.",
+        purchaseId,
+        escrowId: escrow._id,
+      });
+    }
+
+    // ------------------------------
+    // RESPONSE
+    // ------------------------------
     res.json({
       success: true,
+      message: "Purchase payment initialized",
       authorizationUrl: init.data.authorization_url,
       reference,
       purchaseId: purchase._id,
+      escrowId: escrow._id,
     });
   } catch (err) {
     console.error("initializePurchasePayment error:", err);
@@ -117,51 +183,89 @@ verifyPurchasePayment = async (req, res) => {
   try {
     const { reference, purchaseId } = req.body;
 
+    // Verify Paystack transaction
     const verification = await verifyTransaction(reference);
     if (verification.data.status !== "success")
       return res.status(400).json({ message: "Payment not successful" });
 
-    const purchase = await Purchase.findById(purchaseId);
+    // Find purchase
+    const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase)
       return res.status(404).json({ message: "Purchase not found" });
 
+    // Get admin
     const adminUser = await User.findOne({ role: "admin" });
 
+    // ------------------------------
+    // UPDATE PURCHASE
+    // ------------------------------
     purchase.feePaid = true;
     purchase.escrowHeldBy = adminUser._id;
     purchase.status = "paid";
     await purchase.save();
 
-    // Notify buyer
+    // ------------------------------
+    // UPDATE ESCROW
+    // ------------------------------
+    const escrow = await Escrow.findOne({ reference });
+    if (!escrow)
+      return res.status(404).json({ message: "Escrow record not found" });
+
+    escrow.status = "approved"; // funds now successfully in escrow
+    escrow.heldBy = adminUser._id; // admin holds funds
+    await escrow.save();
+
+    // ------------------------------
+    // NOTIFICATIONS
+    // ------------------------------
+
+    // Notify Buyer
     await Notification.create({
       user: purchase.buyer,
-      title: "Purchase Fee Paid",
-      message: `Your purchase payment is successful and held in escrow.`,
-      meta: { purchaseId },
+      title: "Purchase Payment Verified",
+      message: `Your purchase payment is now verified and securely held in escrow.`,
+      meta: { purchaseId, escrowId: escrow._id },
     });
 
-    // Notify property owner
+    // Notify Seller
     await Notification.create({
       user: purchase.owner,
-      title: "Property Purchase Initiated",
-      message: `Your property "${purchase.property}" is being purchased.`,
-      meta: { purchaseId },
+      title: "Purchase Payment Held in Escrow",
+      message: `Payment for your property is verified and held in escrow pending admin release.`,
+      meta: { purchaseId, escrowId: escrow._id },
     });
 
-    // Socket.io event
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "purchase_fee_paid",
-        title: "Purchase Fee Paid",
-        message: `Purchase payment for property held in escrow.`,
-        purchaseId,
+    // Notify Admin
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "Purchase Escrow Updated",
+        message: `Payment verified for purchase and funds are now in escrow.`,
+        meta: { purchaseId, escrowId: escrow._id },
       });
     }
 
+    // ------------------------------
+    // SOCKET EVENT
+    // ------------------------------
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "purchase_payment_verified",
+        title: "Purchase Payment Verified",
+        message: "A purchase payment has been verified and escrow updated.",
+        purchaseId,
+        escrowId: escrow._id,
+      });
+    }
+
+    // ------------------------------
+    // RESPONSE
+    // ------------------------------
     res.json({
       success: true,
-      message: "Payment verified successfully. Await admin release.",
+      message: "Payment verified successfully. Escrow updated.",
       purchase,
+      escrow,
     });
   } catch (err) {
     console.error("verifyPurchasePayment error:", err);

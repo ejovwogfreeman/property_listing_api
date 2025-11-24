@@ -5,7 +5,7 @@ const {
   getMyChats,
   getChatById,
   deleteChat,
-} = require("../controllers/chatController");
+} = require("../controllers/chat");
 
 const { protect, authorize } = require("../middlewares/auth");
 

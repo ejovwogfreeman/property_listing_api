@@ -6,7 +6,6 @@ const {
   verifyAccount,
   login,
   googleAuth,
-  getMe,
 } = require("../controllers/auth");
 const { protect } = require("../middlewares/auth");
 const { uploadNone } = require("../middlewares/upload");
@@ -33,7 +32,7 @@ router.post("/google", googleAuth);
 
 // ------------------------
 // Get logged-in user info
-router.get("/me", protect, getMe);
+// router.get("/me", protect, getMe);
 
 // router.get("/send-email", sendEmail);
 

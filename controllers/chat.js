@@ -5,7 +5,7 @@ const Message = require("../models/Message");
 // ==========================
 // 1. Create or Fetch a 1-on-1 Chat
 // ==========================
-exports.createOrGetChat = async (req, res) => {
+createOrGetChat = async (req, res) => {
   try {
     const { userId } = req.body; // the other participant
     const loggedInUser = req.user._id;
@@ -34,7 +34,7 @@ exports.createOrGetChat = async (req, res) => {
 // ==========================
 // 2. Get all chats for logged-in user
 // ==========================
-exports.getMyChats = async (req, res) => {
+getMyChats = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -55,7 +55,7 @@ exports.getMyChats = async (req, res) => {
 // ==========================
 // 3. Get a single chat by ID
 // ==========================
-exports.getChatById = async (req, res) => {
+getChatById = async (req, res) => {
   try {
     const chatId = req.params.chatId;
 
@@ -79,7 +79,7 @@ exports.getChatById = async (req, res) => {
 // ==========================
 // DELETE A CHAT
 // ==========================
-exports.deleteChat = async (req, res) => {
+deleteChat = async (req, res) => {
   try {
     const { chatId } = req.params;
     const userId = req.user._id;
