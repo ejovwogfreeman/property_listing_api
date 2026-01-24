@@ -41,7 +41,6 @@ This API also supports **Cloudinary file uploads**, **real-time notifications**,
 - Multi-channel notifications:
   - In-app (WebSocket)
   - Email
-  - WhatsApp
 - Triggered on major actions:
   - Registration
   - Property upload/update/delete
@@ -62,42 +61,6 @@ This API also supports **Cloudinary file uploads**, **real-time notifications**,
 | **Notifications**         | Socket.io, Nodemailer, Twilio (WhatsApp) |
 | **Environment Variables** | dotenv                                   |
 | **Validation & Security** | express-validator, helmet, cors          |
-
----
-
-## 📂 Folder Structure
-
-# 🏠 RealEstate API Documentation
-
-Backend API for a Real Estate platform supporting **authentication**, **user management**, **properties**, **chat**, and **real-time notifications** via Socket.IO.
-
----
-
-## 🚀 Base Information
-
-- **Server**: Node.js + Express
-- **Database**: MongoDB
-- **Authentication**: JWT
-- **Real-time**: Socket.IO
-- **File Uploads**: Multer
-
-### Base URL
-
-```
-http://localhost:5000/api
-```
-
----
-
-## 🛠️ Tech Stack
-
-- Node.js
-- Express.js
-- MongoDB + Mongoose
-- JSON Web Tokens (JWT)
-- Socket.IO
-- Multer
-- dotenv
 
 ---
 
