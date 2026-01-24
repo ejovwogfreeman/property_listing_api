@@ -1,6 +1,6 @@
 // controllers/chatController.js
-const Chat = require("../models/Chat");
-const Message = require("../models/Message");
+const Chat = require("../models/chat");
+const Message = require("../models/message");
 
 // ==========================
 // 1. Create or Fetch a 1-on-1 Chat
