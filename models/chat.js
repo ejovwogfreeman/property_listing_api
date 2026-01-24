@@ -13,7 +13,7 @@ const ChatSchema = new Schema(
       ref: "Message",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 /**
