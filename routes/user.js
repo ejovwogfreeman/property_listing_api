@@ -28,17 +28,17 @@ router.get("/me", protect, getMe);
 router.put("/update-profile", protect, updateProfile);
 
 // Request password change (normal users only)
-router.post("/request-change-password", protect, requestChangePassword);
+router.post("/request-change-password", requestChangePassword);
 
 // Change password (normal users only)
-router.post("/change-password", protect, changePassword);
+router.post("/change-password", changePassword);
 
 // Change profile picture (all users)
 router.post(
   "/change-profile-picture",
   protect,
   upload.single("profilePicture"),
-  changeProfilePicture
+  changeProfilePicture,
 );
 
 module.exports = router;
