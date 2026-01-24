@@ -66,3 +66,276 @@ This API also supports **Cloudinary file uploads**, **real-time notifications**,
 ---
 
 ## 📂 Folder Structure
+
+# 🏠 RealEstate API Documentation
+
+Backend API for a Real Estate platform supporting **authentication**, **user management**, **properties**, **chat**, and **real-time notifications** via Socket.IO.
+
+---
+
+## 🚀 Base Information
+
+- **Server**: Node.js + Express
+- **Database**: MongoDB
+- **Authentication**: JWT
+- **Real-time**: Socket.IO
+- **File Uploads**: Multer
+
+### Base URL
+
+```
+http://localhost:5000/api
+```
+
+---
+
+## 🛠️ Tech Stack
+
+- Node.js
+- Express.js
+- MongoDB + Mongoose
+- JSON Web Tokens (JWT)
+- Socket.IO
+- Multer
+- dotenv
+
+---
+
+## 🔐 Authentication
+
+Authentication is handled using **JWT**. Protected routes require a valid token.
+
+### Headers (Protected Routes)
+
+```
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+---
+
+## 📦 API Modules
+
+- Auth
+- Users
+- Properties
+- Chat
+- Notifications (planned)
+- Escrow (planned)
+
+---
+
+## 🔑 AUTH ROUTES
+
+Base path:
+
+```
+/api/auth
+```
+
+### Register User
+
+**POST** `/register`
+
+**Body (form-data / JSON)**
+
+```json
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "password123",
+  "role": "buyer"
+}
+```
+
+---
+
+### Verify Account
+
+**POST** `/verify`
+
+**Body**
+
+```json
+{
+  "email": "john@example.com",
+  "code": "123456"
+}
+```
+
+---
+
+### Login
+
+**POST** `/login`
+
+**Body**
+
+```json
+{
+  "email": "john@example.com",
+  "password": "password123"
+}
+```
+
+---
+
+### Google OAuth Login
+
+**POST** `/google`
+
+**Body**
+
+```json
+{
+  "tokenId": "GOOGLE_ID_TOKEN"
+}
+```
+
+---
+
+## 👤 USER ROUTES
+
+Base path:
+
+```
+/api/user
+```
+
+### Get Logged-in User
+
+**GET** `/me`
+
+🔒 Protected
+
+---
+
+### Update Profile
+
+**PUT** `/update-profile`
+
+🔒 Protected
+
+**Body**
+
+```json
+{
+  "name": "John Updated",
+  "phone": "08000000000"
+}
+```
+
+---
+
+### Request Password Change
+
+**POST** `/request-change-password`
+
+🔒 Protected
+
+---
+
+### Change Password
+
+**POST** `/change-password`
+
+🔒 Protected
+
+**Body**
+
+```json
+{
+  "oldPassword": "oldpass",
+  "newPassword": "newpass"
+}
+```
+
+---
+
+### Change Profile Picture
+
+**POST** `/change-profile-picture`
+
+🔒 Protected
+
+**Body (form-data)**
+
+```
+profilePicture: <image file>
+```
+
+---
+
+## 🏘️ PROPERTY ROUTES
+
+Base path:
+
+```
+/api/property
+```
+
+> Handles property creation, updates, listing, and deletion.
+
+(Endpoints documented inside `routes/property.js`)
+
+---
+
+## 💬 CHAT ROUTES
+
+Base path:
+
+```
+/api/chat
+```
+
+> Handles one-to-one messaging, conversations, and message history.
+
+(Endpoints documented inside `routes/chat.js`)
+
+---
+
+## 🔔 REAL-TIME (Socket.IO)
+
+Socket.IO is initialized globally for:
+
+- Real-time chat
+- Online user tracking
+- Notifications
+
+### Socket Initialization
+
+```js
+global.io = io;
+global.onlineUsers = new Map();
+```
+
+---
+
+## ⚠️ Error Response Format
+
+```json
+{
+  "success": false,
+  "message": "Error message"
+}
+```
+
+---
+
+## ✅ Success Response Format
+
+```json
+{
+  "success": true,
+  "message": "Operation successful",
+  "data": {}
+}
+```
+
+---
+
+## 🧪 Testing
+
+You can test the API using:
+
+- Postman
