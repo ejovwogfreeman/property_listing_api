@@ -2,10 +2,13 @@
 // GOOGLE OAUTH CALLBACKS
 // --------------------------
 
+const baseUrl = "https://property-listing-api-x7iv.onrender.com/api/auth";
+// const baseUrl = "http://localhost:8000/api/auth";
+
 // Google Register
 async function handleGoogleRegister(response) {
   try {
-    const res = await fetch("http://localhost:8000/api/auth/google", {
+    const res = await fetch(`${baseUrl}/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tokenId: response.credential, mode: "register" }),
@@ -27,7 +30,7 @@ async function handleGoogleRegister(response) {
 // Google Login
 async function handleGoogleLogin(response) {
   try {
-    const res = await fetch("http://localhost:8000/api/auth/google", {
+    const res = await fetch(`${baseUrl}/google`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tokenId: response.credential, mode: "login" }),
@@ -57,7 +60,7 @@ if (loginForm) {
     const password = document.getElementById("password").value.trim();
 
     try {
-      const res = await fetch("http://localhost:8000/api/auth/login", {
+      const res = await fetch(`${baseUrl}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -89,7 +92,7 @@ if (registerForm) {
     const password = document.getElementById("password").value.trim();
 
     try {
-      const res = await fetch("http://localhost:8000/api/auth/register", {
+      const res = await fetch(`${baseUrl}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, password }),
