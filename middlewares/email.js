@@ -7,12 +7,12 @@ const readFile = promisify(fs.readFile);
 const email = async (receiver, subject, body, replacements = {}) => {
   try {
     let transporter = nodemailer.createTransport({
-      host: "mail.codefest.africa",
-      port: 465,
+      host: "mail.merrymemorries.com",
+      port: 587,
       secure: false,
       auth: {
-        user: "support@codefest.africa",
-        pass: "codefest.africa.2025",
+        user: "support@merrymemorries.com",
+        pass: "ZQor41rI7qIdh",
       },
     });
 
@@ -27,7 +27,7 @@ const email = async (receiver, subject, body, replacements = {}) => {
 
     // Send email
     let info = await transporter.sendMail({
-      from: '"Property Listing API" <support@codefest.africa>',
+      from: '"Property Listing API" <support@merrymemorries.com>',
       to: receiver,
       subject: subject,
       html: html,
