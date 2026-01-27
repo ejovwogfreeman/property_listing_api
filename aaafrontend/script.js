@@ -2,8 +2,8 @@
 // GOOGLE OAUTH CALLBACKS
 // --------------------------
 
-// const baseUrl = "https://property-listing-api-x7iv.onrender.com/api/auth";
-const baseUrl = "http://localhost:8000/api/auth";
+const baseUrl = "https://property-listing-api-x7iv.onrender.com/api/auth";
+// const baseUrl = "http://localhost:8000/api/auth";
 
 // Google Register
 async function handleGoogleRegister(response) {

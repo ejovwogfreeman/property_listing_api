@@ -11,8 +11,8 @@ const email = async (receiver, subject, body, replacements = {}) => {
       port: 587,
       secure: false,
       auth: {
-        user: "support@merrymemorries.com",
-        pass: "ZQor41rI7qIdh",
+        user: process.env.EMAIL_USERNAME,
+        pass: process.env.EMAIL_PASSWORD,
       },
     });
 
