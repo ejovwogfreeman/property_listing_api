@@ -17,10 +17,15 @@ const email = async (receiver, subject, body, replacements = {}) => {
     // });
 
     let transporter = nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
       auth: {
-        user: process.env.EMAIL_USERNAME, // your Gmail address
-        pass: process.env.EMAIL_PASSWORD, // Gmail App Password
+        user: process.env.EMAIL_USERNAME,
+        pass: process.env.EMAIL_PASSWORD,
+      },
+      tls: {
+        rejectUnauthorized: false,
       },
     });
 
