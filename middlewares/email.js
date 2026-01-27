@@ -6,13 +6,21 @@ const readFile = promisify(fs.readFile);
 
 const email = async (receiver, subject, body, replacements = {}) => {
   try {
+    // let transporter = nodemailer.createTransport({
+    //   host: "mail.merrymemorries.com",
+    //   port: 587,
+    //   secure: false,
+    //   auth: {
+    //     user: process.env.EMAIL_USERNAME,
+    //     pass: process.env.EMAIL_PASSWORD,
+    //   },
+    // });
+
     let transporter = nodemailer.createTransport({
-      host: "mail.merrymemorries.com",
-      port: 587,
-      secure: false,
+      service: "gmail",
       auth: {
-        user: process.env.EMAIL_USERNAME,
-        pass: process.env.EMAIL_PASSWORD,
+        user: process.env.EMAIL_USERNAME, // your Gmail address
+        pass: process.env.EMAIL_PASSWORD, // Gmail App Password
       },
     });
 
@@ -27,7 +35,7 @@ const email = async (receiver, subject, body, replacements = {}) => {
 
     // Send email
     let info = await transporter.sendMail({
-      from: '"Property Listing API" <support@merrymemorries.com>',
+      from: `"Property Listing API" <${process.env.EMAIL_USERNAME}>`,
       to: receiver,
       subject: subject,
       html: html,
