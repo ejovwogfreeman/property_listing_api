@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Socket.IO Test</title>
+  </head>
+  <body>
+    <h1>Socket.IO Client Test</h1>
+    <a href="register.html">Register</a>
+    <a href="login.html">Login</a>
+  </body>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    // Connect to your server
+    const socket = io("http://localhost:8000");
+    // make sure port matches your server
+    // // When connected
+    socket.on("connect", () => {
+      console.log("🟢 Connected to server with ID:", socket.id);
+      // Notify server that a user connected
+      socket.emit("user_connected", "user123");
+    });
+    // Listen for notifications
+    socket.on("notification", (data) => {
+      console.log("🔔 Notification received:", data);
+    });
+    // Listen for messages
+    socket.on("receive_message", (data) => {
+      console.log("💬 Message received:", data);
+    });
+  </script>
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login | RealEstate App</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body style="font-family: Arial; text-align: center; margin-top: 40px">
+    <h2>Login to RealEstate</h2>
+
+    <!-- Google OAuth Button -->
+    <div
+      id="g_id_onload"
+      data-client_id="371808508729-nth6iau0g3d2mu8adrua0s6m4f3o2rs1.apps.googleusercontent.com"
+      data-callback="handleGoogleLogin"
+      data-auto_select="false"
+    ></div>
+    <div class="g_id_signin" data-type="standard"></div>
+
+    <p>or use your account</p>
+
+    <form id="loginForm" style="max-width: 300px; margin: auto">
+      <input
+        type="email"
+        id="email"
+        placeholder="Email"
+        required
+        style="width: 100%; padding: 8px; margin: 8px 0"
+      /><br />
+      <input
+        type="password"
+        id="password"
+        placeholder="Password"
+        required
+        style="width: 100%; padding: 8px; margin: 8px 0"
+      /><br />
+      <button type="submit" style="padding: 8px 16px">Login</button>
+    </form>
+
+    <p>Don't have an account? <a href="register.html">Register</a></p>
+
+    <script src="script.js"></script>
+  </body>
+</html>
