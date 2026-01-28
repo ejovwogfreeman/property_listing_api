@@ -6,16 +6,14 @@ const readFile = promisify(fs.readFile);
 
 const email = async (receiver, subject, body, replacements = {}) => {
   try {
+    // Gmail SMTP transporter
     const transporter = nodemailer.createTransport({
-      host: "smtp-relay.brevo.com",
-      port: 587,
-      secure: false,
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true, // true for 465
       auth: {
-        user: "apikey", // fixed value for Brevo
-        pass: process.env.BREVO_SMTP_KEY, // your SMTP key
-      },
-      tls: {
-        rejectUnauthorized: false,
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS, // Gmail App Password
       },
     });
 
@@ -30,7 +28,7 @@ const email = async (receiver, subject, body, replacements = {}) => {
 
     // Send email
     let info = await transporter.sendMail({
-      from: `"Property Listing API" <${process.env.BREVO_EMAIL_USERNAME}>`,
+      from: `"Property Listing API" <${process.env.GMAIL_USER}>`,
       to: receiver,
       subject: subject,
       html: html,
