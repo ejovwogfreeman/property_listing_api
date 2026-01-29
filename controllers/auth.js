@@ -130,7 +130,7 @@ verifyAccount = async (req, res) => {
   }
 };
 
-const resendVerificationCode = async (req, res) => {
+resendVerificationCode = async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -241,6 +241,7 @@ login = async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        isVerified: user.isVerified,
       },
     });
   } catch (err) {
@@ -393,6 +394,7 @@ googleAuth = async (req, res) => {
           email: user.email,
           name: user.name,
           role: user.role,
+          isVerified: user.isVerified,
           avatar: user.avatar,
         },
       });
