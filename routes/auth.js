@@ -4,6 +4,7 @@ const router = express.Router();
 const {
   register,
   verifyAccount,
+  resendVerificationCode,
   login,
   googleAuth,
 } = require("../controllers/auth");
@@ -19,6 +20,11 @@ router.post("/register", uploadNone, register);
 // Account Verification
 // Body: { email, code }
 router.post("/verify", verifyAccount);
+
+// ------------------------
+// Account Verification
+// Body: { email, code }
+router.post("/resend-verification", resendVerificationCode);
 
 // ------------------------
 // Normal login

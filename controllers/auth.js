@@ -14,7 +14,7 @@ const genToken = (user) => {
       role: user.role,
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30d" }
+    { expiresIn: "30d" },
   );
 };
 
@@ -51,7 +51,7 @@ register = async (req, res) => {
       user.email,
       "Verify Your Account",
       "register.html",
-      { EMAIL: email, CODE: verificationCode } // dynamic value
+      { EMAIL: email, CODE: verificationCode }, // dynamic value
     );
 
     // Create notification
@@ -105,7 +105,7 @@ verifyAccount = async (req, res) => {
       user.email,
       "Verify Your Account",
       "verify.html",
-      { EMAIL: email } // dynamic value
+      { EMAIL: email }, // dynamic value
     );
 
     await Notification.create({
@@ -127,6 +127,64 @@ verifyAccount = async (req, res) => {
   } catch (err) {
     console.error("Verify error:", err);
     res.status(500).json({ message: "Verification failed" });
+  }
+};
+
+const resendVerificationCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ message: "Account already verified" });
+    }
+
+    // Generate new verification code
+    const verificationCode = generateCode();
+
+    user.verificationCode = verificationCode;
+    await user.save();
+
+    // Resend verification email
+    await Email(
+      user.email,
+      "Verify Your Account",
+      "register.html",
+      { EMAIL: email, CODE: verificationCode }, // dynamic value
+    );
+
+    // Create notification
+    await Notification.create({
+      user: user._id,
+      title: "Verification Code Resent",
+      message: `A new verification code has been sent to ${email}.`,
+      meta: { userId: user._id },
+    });
+
+    // Emit socket notification (optional)
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "verification_resent",
+        title: "Verification Resent",
+        message: `Verification code resent to ${email}.`,
+        userId: user._id,
+      });
+    }
+
+    res.status(200).json({
+      message: "Verification code resent successfully",
+    });
+  } catch (err) {
+    console.error("Resend verification error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -158,7 +216,7 @@ login = async (req, res) => {
       user.email,
       "Login Successful",
       "login.html",
-      { EMAIL: email } // dynamic value
+      { EMAIL: email }, // dynamic value
     );
 
     await Notification.create({
@@ -246,7 +304,7 @@ googleAuth = async (req, res) => {
           user.email,
           "Verify Your Account",
           "register.html",
-          { EMAIL: email, CODE: verificationCode } // dynamic value
+          { EMAIL: email, CODE: verificationCode }, // dynamic value
         );
       } catch (mailErr) {
         console.error("Email sending failed:", mailErr);
@@ -351,6 +409,7 @@ googleAuth = async (req, res) => {
 module.exports = {
   register,
   verifyAccount,
+  resendVerificationCode,
   login,
   googleAuth,
 };
