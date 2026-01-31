@@ -7,6 +7,8 @@ const {
   resendVerificationCode,
   login,
   googleAuth,
+  forgetPassword,
+  changePassword,
 } = require("../controllers/auth");
 const { protect } = require("../middlewares/auth");
 const { uploadNone } = require("../middlewares/upload");
@@ -35,6 +37,14 @@ router.post("/login", uploadNone, login);
 // Google OAuth login
 // Body: { tokenId } (from Google Sign-In)
 router.post("/google", googleAuth);
+
+// Normal login
+// Body: { email }
+router.post("/forget-password", forgetPassword);
+
+// Normal login
+// Body: { email, code, newPassword }
+router.post("/change-password", forgetPassword);
 
 // ------------------------
 // Get logged-in user info

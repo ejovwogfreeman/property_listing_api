@@ -88,84 +88,6 @@ updateProfile = async (req, res) => {
   }
 };
 
-requestChangePassword = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const user = await User.findById(userId);
-
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    // Only normal users can request
-    if (user.isGoogleUser) {
-      return res
-        .status(403)
-        .json({ message: "Google users cannot change password" });
-    }
-
-    // Generate verification code
-    const code = generateCode(); // e.g., 6-digit code
-    user.verificationCode = code;
-    await user.save();
-
-    // Send email to user
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?userId=${user._id}&code=${code}`;
-    await Email.send({
-      to: user.email,
-      subject: "Password Reset Request",
-      text: `You requested to change your password. Use this code: ${code} or click the link: ${resetLink}`,
-    });
-
-    res.json({
-      message:
-        "Password reset email sent. Check your inbox for the code or link.",
-    });
-  } catch (err) {
-    console.error("requestChangePassword error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-};
-
-// ===============================
-// 2. Change Password
-// ===============================
-changePassword = async (req, res) => {
-  try {
-    const { userId, code, newPassword } = req.body;
-
-    if (!userId || !code || !newPassword) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    // Only normal users can change password
-    if (user.isGoogleUser) {
-      return res
-        .status(403)
-        .json({ message: "Google users cannot change password" });
-    }
-
-    // Verify code
-    if (user.verificationCode !== code) {
-      return res.status(400).json({ message: "Invalid verification code" });
-    }
-
-    // Set new password (will be hashed automatically in the User model)
-    user.password = newPassword;
-
-    // Clear verification code
-    user.verificationCode = null;
-
-    await user.save();
-
-    res.json({ message: "Password changed successfully" });
-  } catch (err) {
-    console.error("changePassword error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-};
-
 changeProfilePicture = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -215,8 +137,6 @@ changeProfilePicture = async (req, res) => {
 module.exports = {
   getMe,
   updateProfile,
-  requestChangePassword,
-  changePassword,
   changeProfilePicture,
   changeProfilePicture,
 };

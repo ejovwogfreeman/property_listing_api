@@ -8,8 +8,6 @@ const { protect } = require("../middlewares/auth"); // middleware to get req.use
 const {
   getMe,
   updateProfile,
-  requestChangePassword,
-  changePassword,
   changeProfilePicture,
 } = require("../controllers/userController");
 
@@ -26,12 +24,6 @@ router.get("/me", protect, getMe);
 
 // Update profile (normal users only)
 router.put("/update-profile", protect, updateProfile);
-
-// Request password change (normal users only)
-router.post("/request-change-password", requestChangePassword);
-
-// Change password (normal users only)
-router.post("/change-password", changePassword);
 
 // Change profile picture (all users)
 router.post(
