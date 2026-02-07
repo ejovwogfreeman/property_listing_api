@@ -422,7 +422,7 @@ forgetPassword = async (req, res) => {
     // Only normal users can request
     if (user.isGoogleUser) {
       return res
-        .status(403)
+        .status(400)
         .json({ message: "Google users cannot change password" });
     }
 
