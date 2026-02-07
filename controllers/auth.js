@@ -432,7 +432,7 @@ forgetPassword = async (req, res) => {
     await user.save();
 
     // Send email to user
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password`;
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password?email=${email}`;
     await Email(email, "Password Reset Request", "passwordreset.html", {
       EMAIL: email,
       RESET_LINK: resetLink,
