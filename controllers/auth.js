@@ -436,6 +436,7 @@ forgetPassword = async (req, res) => {
     await Email(email, "Password Reset Request", "passwordreset.html", {
       EMAIL: email,
       RESET_LINK: resetLink,
+      RESET_CODE: code,
     });
     res.json({
       message:
