@@ -44,7 +44,7 @@ router.post("/forget-password", forgetPassword);
 
 // Normal login
 // Body: { email, code, newPassword }
-router.post("/change-password", forgetPassword);
+router.post("/change-password", changePassword);
 
 // ------------------------
 // Get logged-in user info
