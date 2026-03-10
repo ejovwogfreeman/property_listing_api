@@ -472,7 +472,7 @@ changePassword = async (req, res) => {
     }
 
     // Verify code
-    if (user.verificationCode !== code) {
+    if (user.verificationCode !== Number(code)) {
       return res.status(400).json({ message: "Invalid verification code" });
     }
 
