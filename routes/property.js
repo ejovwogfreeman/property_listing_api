@@ -20,7 +20,7 @@ router.post(
   protect,
   authorize("admin", "agent"),
   uploadPropertyFiles,
-  createProperty
+  createProperty,
 );
 
 // ------------------------
@@ -31,7 +31,7 @@ router.get("/", listProperties);
 // ------------------------
 // Get single property by ID
 // Public (or protected if you want)
-router.get("/:id", protect, getProperty);
+router.get("/:id", getProperty);
 
 // ------------------------
 // Update property by ID
@@ -42,7 +42,7 @@ router.put(
   protect,
   authorize("admin", "agent"),
   uploadNone,
-  updateProperty
+  updateProperty,
 );
 
 // ------------------------
