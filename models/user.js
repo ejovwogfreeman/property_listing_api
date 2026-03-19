@@ -9,6 +9,14 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ["user", "agent", "admin"], default: "user" },
   verificationCode: { type: Number, default: false },
   isVerified: { type: Boolean, default: false },
+  rating: {
+    type: Number,
+    default: 0,
+  },
+  totalListings: {
+    type: Number,
+    default: 0,
+  },
   balance: { type: Number, default: 0 },
   address: { type: String },
   phoneNumber: { type: String },

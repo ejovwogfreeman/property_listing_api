@@ -86,25 +86,6 @@ const propertySchema = new mongoose.Schema(
         ref: "User", // or 'Agent' depending on your system
         required: true,
       },
-      name: {
-        type: String,
-        required: true,
-      },
-      avatar: {
-        type: String,
-      },
-      is_verified: {
-        type: Boolean,
-        default: false,
-      },
-      rating: {
-        type: Number,
-        default: 0,
-      },
-      totalListings: {
-        type: Number,
-        default: 0,
-      },
     },
   },
   { timestamps: true }, // Automatically adds createdAt and updatedAt

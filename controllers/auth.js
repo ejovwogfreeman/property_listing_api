@@ -294,7 +294,7 @@ googleAuth = async (req, res) => {
         name,
         email,
         password: "GOOGLE_AUTH_PLACEHOLDER", // will be skipped because isGoogleUser = true
-        avatar: picture,
+        profilePicture: picture,
         isGoogleUser: true,
         isVerified: false,
         verificationCode,
@@ -396,7 +396,7 @@ googleAuth = async (req, res) => {
           name: user.name,
           role: user.role,
           isVerified: user.isVerified,
-          avatar: user.avatar,
+          profilePicture: user.avatar,
         },
       });
     }
