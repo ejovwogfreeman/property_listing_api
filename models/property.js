@@ -92,7 +92,8 @@ const propertySchema = new mongoose.Schema(
         required: true,
       },
       profilePicture: {
-        type: String,
+        type: [String],
+        default: [],
       },
       isVerified: {
         type: Boolean,
