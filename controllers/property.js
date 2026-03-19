@@ -79,7 +79,7 @@ const createProperty = async (req, res) => {
       _id: user._id,
       name: user.name,
       profilePicture: user.profilePicture || null,
-      is_verified: user.is_verified || false,
+      isVerified: user.isVerified || false,
       rating: user.rating || 0,
       totalListings: user.totalListings || 0,
     };
