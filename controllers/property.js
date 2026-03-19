@@ -93,7 +93,7 @@ const createProperty = async (req, res) => {
     const videoUrls = req.files?.video
       ? await uploadVideos(req.files.video)
       : [];
-    const video = videoUrls[0] || null;
+    // const video = videoUrls[0] || null;
 
     // Create property
     const prop = await Property.create({
@@ -110,7 +110,7 @@ const createProperty = async (req, res) => {
       serviceCharge,
       nearbyPlaces: nearbyPlaces || [],
       images,
-      video,
+      video: videoUrls,
       owner,
     });
 

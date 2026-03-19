@@ -18,9 +18,12 @@ const UserSchema = new mongoose.Schema({
     default: 0,
   },
   balance: { type: Number, default: 0 },
-  address: { type: String },
-  phoneNumber: { type: String },
-  profilePicture: String,
+  address: { type: String, default: null },
+  phoneNumber: { type: String, default: null },
+  profilePicture: {
+    type: [String],
+    default: [],
+  },
   createdAt: { type: Date, default: Date.now },
 });
 

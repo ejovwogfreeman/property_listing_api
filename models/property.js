@@ -43,7 +43,8 @@ const propertySchema = new mongoose.Schema(
       default: [],
     },
     video: {
-      type: String,
+      type: [String],
+      default: [],
     },
     propertyType: {
       type: String,
