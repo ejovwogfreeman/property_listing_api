@@ -78,7 +78,7 @@ const createProperty = async (req, res) => {
     const owner = {
       _id: user._id,
       name: user.name,
-      avatar: user.avatar || null,
+      profilePicture: user.profilePicture || null,
       is_verified: user.is_verified || false,
       rating: user.rating || 0,
       totalListings: user.totalListings || 0,
