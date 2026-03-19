@@ -143,10 +143,7 @@ const createProperty = async (req, res) => {
  */
 listProperties = async (req, res) => {
   try {
-    const props = await Property.find().populate(
-      "owner",
-      "name profilePicture is_verified rating totalListings",
-    );
+    const props = await Property.find();
     res.json({ success: true, properties: props });
   } catch (err) {
     console.error("listProperties error:", err);
