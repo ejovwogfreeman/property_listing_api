@@ -7,7 +7,7 @@ const {
   getFavorites,
   getFavoriteById,
 } = require("../controllers/favorite");
-const { protect } = require("../middleware/auth"); // your protect middleware
+const { protect, authorize } = require("../middlewares/auth");
 
 // ---------------------------
 // Favorites Routes

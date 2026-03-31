@@ -10,7 +10,7 @@ const {
   getAgentInspections,
   getAllInspections,
 } = require("../controllers/inspection");
-const { protect, authorize } = require("../middleware/auth"); // your protect middleware
+const { protect, authorize } = require("../middlewares/auth");
 
 // ---------------------------
 // 1️⃣ Request Inspection
