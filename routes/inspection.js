@@ -9,7 +9,7 @@ const {
   getUserInspections,
   getAgentInspections,
   getAllInspections,
-} = require("../controllers/inspectionController");
+} = require("../controllers/inspection");
 const { protect, authorize } = require("../middleware/auth"); // your protect middleware
 
 // ---------------------------
@@ -59,7 +59,7 @@ router.get(
   "/inspection/agent-inspections",
   protect,
   authorize("agent"),
-  getAgentInspections
+  getAgentInspections,
 );
 
 // ---------------------------
@@ -69,7 +69,7 @@ router.get(
   "/inspection/all-inspections",
   protect,
   authorize("admin"),
-  getAllInspections
+  getAllInspections,
 );
 
 module.exports = router;

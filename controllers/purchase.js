@@ -99,7 +99,7 @@ initializePurchasePayment = async (req, res) => {
     const init = await initializeTransaction(
       req.user.email,
       purchase.price * 100,
-      reference
+      reference,
     );
 
     // ------------------------------
@@ -326,7 +326,7 @@ getAgentPurchases = async (req, res) => {
     // Fetch properties where the logged-in user is the agent
     const properties = await Property.find(
       { agent: agentId },
-      "_id title price address"
+      "_id title price address",
     );
     const propertyIds = properties.map((p) => p._id);
 
