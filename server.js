@@ -12,7 +12,8 @@ const authRoutes = require("./routes/auth");
 const propertyRoutes = require("./routes/property");
 const chatRoutes = require("./routes/chat");
 const favoriteRoutes = require("./routes/favorite");
-const notificationRoutes = require("./routes/notification");
+const userRoutes = require("./routes/user");
+// const notificationRoutes = require("./routes/notification");
 // const escrowRoutes = require("./routes/escrow");
 
 // Import socket handler
@@ -51,6 +52,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/property", propertyRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/favorite", favoriteRoutes);
+app.use("/api/user", userRoutes);
 // app.use("/api/notification", notificationRoutes);
 // app.use("/api/escrow", escrowRoutes);
 
