@@ -9,6 +9,7 @@ const {
   getMe,
   updateProfile,
   changeProfilePicture,
+  getAllAgents,
 } = require("../controllers/userController");
 
 // Multer setup for single file upload (profile picture)
@@ -32,5 +33,8 @@ router.post(
   upload.single("profilePicture"),
   changeProfilePicture,
 );
+
+// Get all agents
+router.get("/agents", getAllAgents);
 
 module.exports = router;

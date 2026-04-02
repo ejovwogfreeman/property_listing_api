@@ -134,9 +134,47 @@ changeProfilePicture = async (req, res) => {
   }
 };
 
+// const getAllUsers = async (req, res) => {
+//   try {
+//     const users = await User.find();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "All users fetched successfully",
+//       total: users.length,
+//       data: users,
+//     });
+//   } catch (error) {
+//     console.error(error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//     });
+//   }
+// };
+
+const getAllAgents = async (req, res) => {
+  try {
+    const agents = await User.find({ role: "agent" });
+
+    return res.status(200).json({
+      success: true,
+      message: "Agents fetched successfully",
+      total: agents.length,
+      data: agents,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
 module.exports = {
   getMe,
   updateProfile,
   changeProfilePicture,
-  changeProfilePicture,
+  getAllAgents,
 };
