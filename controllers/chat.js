@@ -70,37 +70,7 @@ const getChatById = async (req, res) => {
 };
 
 // ==========================
-// 3. DELETE A CHAT
-// ==========================
-const deleteChat = async (req, res) => {
-  try {
-    const { chatId } = req.params;
-    const userId = req.user._id;
-
-    const chat = await Chat.findById(chatId);
-
-    if (!chat) {
-      return res.status(404).json({ message: "Chat not found" });
-    }
-
-    if (!chat.participants.some((p) => p.toString() === userId.toString())) {
-      return res
-        .status(403)
-        .json({ message: "Not allowed to delete this chat" });
-    }
-
-    await Message.deleteMany({ chat: chat._id });
-    await chat.deleteOne();
-
-    res.json({ message: "Chat deleted successfully" });
-  } catch (error) {
-    console.error("Delete chat error:", error);
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// ==========================
-// 4. Get all chats for the logged-in agent
+// 3. Get all chats for the logged-in agent
 // ==========================
 const getAgentChats = async (req, res) => {
   try {
@@ -131,7 +101,7 @@ const getAgentChats = async (req, res) => {
 };
 
 // ==========================
-// 5. Get all chats
+// 4. Get all chats
 // ==========================
 const getAllChats = async (req, res) => {
   try {
@@ -150,10 +120,40 @@ const getAllChats = async (req, res) => {
   }
 };
 
+// ==========================
+// 5. DELETE A CHAT
+// ==========================
+const deleteChat = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user._id;
+
+    const chat = await Chat.findById(chatId);
+
+    if (!chat) {
+      return res.status(404).json({ message: "Chat not found" });
+    }
+
+    if (!chat.participants.some((p) => p.toString() === userId.toString())) {
+      return res
+        .status(403)
+        .json({ message: "Not allowed to delete this chat" });
+    }
+
+    await Message.deleteMany({ chat: chat._id });
+    await chat.deleteOne();
+
+    res.json({ message: "Chat deleted successfully" });
+  } catch (error) {
+    console.error("Delete chat error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createOrGetChat,
   getChatById,
-  deleteChat,
   getAgentChats,
   getAllChats,
+  deleteChat,
 };
