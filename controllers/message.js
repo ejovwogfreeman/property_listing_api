@@ -299,15 +299,13 @@ const sendMessage = async (req, res) => {
 // ==========================
 // GET MESSAGES (Paginated)
 // ==========================
+// ==========================
+// GET ALL MESSAGES IN A CHAT
+// ==========================
 const getMessages = async (req, res) => {
   try {
     const { chatId } = req.params;
-    let { page = 1, limit = 30 } = req.query;
-
     const userId = req.user._id;
-
-    page = parseInt(page);
-    limit = parseInt(limit);
 
     // ✅ Ensure user belongs to chat
     const chat = await Chat.findById(chatId);
@@ -319,11 +317,10 @@ const getMessages = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    // Fetch all messages in chronological order
     const messages = await Message.find({ chat: chatId })
       .populate("sender", "username avatar email")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
+      .sort({ createdAt: 1 }); // oldest first
 
     res.json(messages);
   } catch (error) {
