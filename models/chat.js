@@ -4,10 +4,20 @@ const Schema = mongoose.Schema;
 const ChatSchema = new Schema(
   {
     participants: [
-      { type: Schema.Types.ObjectId, ref: "User", required: true },
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+      },
     ],
 
-    // FIXED: store the last message as a reference
+    // property-based chat
+    property: {
+      type: Schema.Types.ObjectId,
+      ref: "Property",
+      required: true,
+    },
+
     lastMessage: {
       type: Schema.Types.ObjectId,
       ref: "Message",
@@ -17,9 +27,8 @@ const ChatSchema = new Schema(
 );
 
 /**
- * IMPORTANT FIX:
- * Sort participants before saving.
- * This ensures [A, B] and [B, A] become identical → unique index works properly.
+ * Sort participants before saving
+ * Ensures [A, B] === [B, A]
  */
 ChatSchema.pre("save", function (next) {
   if (this.participants && Array.isArray(this.participants)) {
@@ -31,7 +40,16 @@ ChatSchema.pre("save", function (next) {
   next();
 });
 
-// UNIQUE CHAT ENFORCEMENT (now works correctly!)
-ChatSchema.index({ participants: 1 }, { unique: true });
+/**
+ * Ensure only 2 participants (user ↔ agent)
+ */
+ChatSchema.path("participants").validate(function (val) {
+  return val.length === 2;
+}, "Chat must have exactly 2 participants");
 
-module.exports = mongoose.model("Chat", ChatSchema);
+/**
+ * Unique chat per (participants + property)
+ */
+ChatSchema.index({ participants: 1, property: 1 }, { unique: true });
+
+module.exports = mongoose.models.Chat || mongoose.model("Chat", ChatSchema);

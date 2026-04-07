@@ -14,14 +14,34 @@ const MessageSchema = new Schema(
       required: true,
     },
 
-    text: { type: String },
+    text: {
+      type: String,
+      trim: true,
+    },
 
-    // Supports images/files
     attachments: [{ type: String }],
+
+    type: {
+      type: String,
+      enum: ["text", "image", "file"],
+      default: "text",
+    },
+
+    readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-// FIX: Prevent OverwriteModelError
+// prevent empty messages
+MessageSchema.pre("validate", function (next) {
+  if (!this.text && (!this.attachments || this.attachments.length === 0)) {
+    return next(new Error("Message cannot be empty"));
+  }
+  next();
+});
+
+// performance index
+MessageSchema.index({ chat: 1, createdAt: 1 });
+
 module.exports =
   mongoose.models.Message || mongoose.model("Message", MessageSchema);
