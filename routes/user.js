@@ -10,7 +10,7 @@ const {
   updateProfile,
   changeProfilePicture,
   getAllAgents,
-} = require("../controllers/userController");
+} = require("../controllers/user");
 
 // Multer setup for single file upload (profile picture)
 const storage = multer.memoryStorage();
