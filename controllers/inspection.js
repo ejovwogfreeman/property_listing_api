@@ -1,8 +1,8 @@
-const Inspection = require("../models/Inspection");
+const Inspection = require("../models/inspection");
 const Property = require("../models/Property");
-const User = require("../models/User");
+const User = require("../models/user");
 const Escrow = require("../models/Escrow");
-const Notification = require("../models/Notification");
+const Notification = require("../models/notification");
 const { generateCode } = require("../middlewares/codeGenerator");
 const {
   initializeTransaction,
@@ -193,7 +193,7 @@ initializeInspectionPayment = async (req, res) => {
     const init = await initializeTransaction(
       req.user.email,
       inspection.fee * 100, // convert to kobo
-      reference
+      reference,
     );
 
     return res.json({
@@ -356,7 +356,7 @@ getAgentInspections = async (req, res) => {
     // Fetch properties where the logged-in user is the agent
     const properties = await Property.find(
       { agent: agentId },
-      "_id title price address"
+      "_id title price address",
     );
     const propertyIds = properties.map((p) => p._id);
 
