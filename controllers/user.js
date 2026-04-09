@@ -88,49 +88,95 @@ updateProfile = async (req, res) => {
   }
 };
 
+// changeProfilePicture = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+
+//     if (!req.files) {
+//       return res.status(400).json({ message: "Profile picture is required" });
+//     }
+
+//     // Upload the new image (returns the URL or path)
+//     const imageUrl = await uploadImages(req.files, "profile_pictures");
+
+//     const user = await User.findById(userId);
+//     if (!user) return res.status(404).json({ message: "User not found" });
+
+//     // Update profile picture
+//     user.profilePicture = imageUrl;
+//     await user.save();
+
+//     // Send notification to admin (optional)
+//     await Notification.create({
+//       user: user._id,
+//       title: "Profile Updated",
+//       message: `${user.name} updated their profile picture`,
+//       meta: { userId },
+//     });
+
+//     // Emit socket notification to admin or relevant users
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "profile_picture_updated",
+//         title: "Profile Picture Updated",
+//         message: `${user.name} changed their profile picture`,
+//         userId,
+//       });
+//     }
+
+//     res.json({
+//       message: "Profile picture updated successfully",
+//       profilePicture: imageUrl,
+//     });
+//   } catch (err) {
+//     console.error("changeProfilePicture error:", err);
+//     res.status(500).json({ message: "Server error", error: err.message });
+//   }
+// };
+
 changeProfilePicture = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const user = req.user; // should come from your auth middleware
 
-    if (!req.files) {
-      return res.status(400).json({ message: "Profile picture is required" });
-    }
-
-    // Upload the new image (returns the URL or path)
-    const imageUrl = await uploadImages(req.files, "profile_pictures");
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    // Update profile picture
-    user.profilePicture = imageUrl;
-    await user.save();
-
-    // Send notification to admin (optional)
-    await Notification.create({
-      user: user._id,
-      title: "Profile Updated",
-      message: `${user.name} updated their profile picture`,
-      meta: { userId },
-    });
-
-    // Emit socket notification to admin or relevant users
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "profile_picture_updated",
-        title: "Profile Picture Updated",
-        message: `${user.name} changed their profile picture`,
-        userId,
+    // ---- VALIDATION ----
+    if (!req.files?.images || req.files.images.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Profile picture file is required",
       });
     }
 
-    res.json({
+    // ---- UPLOAD FILE ----
+
+    const images = req.files.images;
+    let uploadedFiles = [];
+    if (images.length > 0) {
+      uploadedFiles = await uploadImages(images, "users/profile-pictures");
+    }
+
+    if (!uploadedFiles || uploadedFiles.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to upload image",
+      });
+    }
+
+    // ---- UPDATE USER ----
+    user.profilePicture = uploadedFiles; // take first uploaded URL/string
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
       message: "Profile picture updated successfully",
-      profilePicture: imageUrl,
+      profilePicture: user.profilePicture,
     });
-  } catch (err) {
-    console.error("changeProfilePicture error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+  } catch (error) {
+    console.error("Change profile picture error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error updating profile picture",
+      error: error.message,
+    });
   }
 };
 
