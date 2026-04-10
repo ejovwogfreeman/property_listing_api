@@ -92,6 +92,9 @@ changeProfilePicture = async (req, res) => {
   try {
     const userId = req.user._id;
 
+    console.log(req.files);
+    console.log(req);
+
     if (!req.files) {
       return res.status(400).json({ message: "Profile picture is required" });
     }
