@@ -92,15 +92,17 @@ changeProfilePicture = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    console.log(req.files);
-    console.log(req);
-
     if (!req.files) {
       return res.status(400).json({ message: "Profile picture is required" });
     }
 
     // Upload the new image (returns the URL or path)
-    const imageUrl = await uploadImages(req.files, "profile_pictures");
+    // Upload images (multiple)
+    const imageUrl = req.files?.images
+      ? await uploadImages(req.files.images)
+      : [];
+
+    // const imageUrl = await uploadImages(images, "profile_pictures");
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });

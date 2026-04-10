@@ -17,10 +17,10 @@ const uploadImages = async (files, folder = "default/images") => {
             (err, result) => {
               if (err) return reject(err);
               resolve(result.secure_url);
-            }
+            },
           )
           .end(file.buffer);
-      })
+      }),
   );
 
   return Promise.all(uploads);
@@ -46,10 +46,10 @@ const uploadVideos = async (files, folder = "default/videos") => {
             (err, result) => {
               if (err) return reject(err);
               resolve(result.secure_url);
-            }
+            },
           )
           .end(file.buffer);
-      })
+      }),
   );
 
   return Promise.all(uploads);
@@ -71,10 +71,10 @@ const uploadOtherFiles = async (files, folder = "default/files") => {
             (err, result) => {
               if (err) return reject(err);
               resolve(result.secure_url);
-            }
+            },
           )
           .end(file.buffer);
-      })
+      }),
   );
 
   return Promise.all(uploads);

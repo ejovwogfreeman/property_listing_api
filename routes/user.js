@@ -11,6 +11,7 @@ const {
   changeProfilePicture,
   getAllAgents,
 } = require("../controllers/user");
+const { uploadProfilePicture } = require("../middlewares/upload");
 
 // Multer setup for single file upload (profile picture)
 const storage = multer.memoryStorage();
@@ -30,7 +31,7 @@ router.put("/update-profile", protect, updateProfile);
 router.post(
   "/change-profile-picture",
   protect,
-  upload.single("profilePicture"),
+  uploadProfilePicture,
   changeProfilePicture,
 );
 
