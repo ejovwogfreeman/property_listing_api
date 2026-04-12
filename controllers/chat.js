@@ -6,6 +6,7 @@ const Message = require("../models/message");
 // 1. Create or Fetch a 1-on-1 Chat
 // ==========================
 const createOrGetChat = async (req, res) => {
+  console.log(req.body);
   try {
     const { userId, propertyId } = req.body;
     const loggedInUser = req.user._id;
@@ -34,6 +35,7 @@ const createOrGetChat = async (req, res) => {
 
     res.json(chat);
   } catch (error) {
+    console.log(error);
     res.status(500).json({ message: error.message });
   }
 };

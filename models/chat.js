@@ -35,7 +35,7 @@ ChatSchema.pre("save", function (next) {
     this.participants = this.participants
       .map((id) => id.toString())
       .sort()
-      .map((id) => mongoose.Types.ObjectId(id));
+      .map((id) => new mongoose.Types.ObjectId(id));
   }
   next();
 });
