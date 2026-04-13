@@ -32,7 +32,7 @@ const createOrGetChat = async (req, res) => {
       return res.status(404).json({ message: "Property not found" });
     }
 
-    if (property.owner.toString() !== agentId.toString()) {
+    if (property.owner._id.toString() !== agentId.toString()) {
       return res.status(400).json({
         message: "This property does not belong to this agent",
       });
