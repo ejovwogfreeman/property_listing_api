@@ -11,19 +11,26 @@ const createOrGetChat = async (req, res) => {
     const { agentId, propertyId } = req.body;
     const userId = req.user._id;
 
+    // 1️⃣ Validate input
     if (!agentId || !propertyId) {
       return res.status(400).json({
         message: "agentId and propertyId are required",
       });
     }
 
-    if (userId.toString() === agentId.toString()) {
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const agentObjectId = new mongoose.Types.ObjectId(agentId);
+    const propertyObjectId = new mongoose.Types.ObjectId(propertyId);
+
+    // 2️⃣ Prevent self chat
+    if (userObjectId.equals(agentObjectId)) {
       return res.status(400).json({
         message: "You cannot chat with yourself",
       });
     }
 
-    const property = await Property.findById(propertyId);
+    // 3️⃣ Verify property exists and belongs to agent
+    const property = await Property.findById(propertyObjectId);
 
     if (!property) {
       return res.status(404).json({
@@ -31,29 +38,37 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    if (property.owner._id.toString() !== agentId.toString()) {
+    if (property.owner._id.toString() !== agentObjectId.toString()) {
       return res.status(400).json({
         message: "This property does not belong to this agent",
       });
     }
 
-    // FIXED QUERY HERE
+    // 4️⃣ Find existing chat (STRICT + RELIABLE)
     let chat = await Chat.findOne({
-      participants: { $all: [userId, agentId] },
-      property: propertyId,
+      property: propertyObjectId,
+      participants: {
+        $all: [userObjectId, agentObjectId],
+        $size: 2,
+      },
     });
 
+    // 5️⃣ Create if not found
     if (!chat) {
       try {
         chat = await Chat.create({
-          participants: [userId, agentId],
-          property: propertyId,
+          participants: [userObjectId, agentObjectId],
+          property: propertyObjectId,
         });
       } catch (err) {
+        // Handle race condition safely
         if (err.code === 11000) {
           chat = await Chat.findOne({
-            participants: { $all: [userId, agentId] },
-            property: propertyId,
+            property: propertyObjectId,
+            participants: {
+              $all: [userObjectId, agentObjectId],
+              $size: 2,
+            },
           });
         } else {
           throw err;
