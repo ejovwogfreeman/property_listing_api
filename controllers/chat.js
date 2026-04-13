@@ -1,6 +1,7 @@
 // controllers/chatController.js
 const Chat = require("../models/chat");
 const Message = require("../models/message");
+const Property = require("../models/property");
 
 // ==========================
 // 1. Create or Fetch a 1-on-1 Chat
@@ -8,9 +9,9 @@ const Message = require("../models/message");
 const createOrGetChat = async (req, res) => {
   try {
     const { agentId, propertyId } = req.body;
-    const userId = req.user._id; // logged-in user
+    const userId = req.user._id;
 
-    // 1️⃣ Validate inputs
+    // 1️⃣ Validate required inputs
     if (!agentId || !propertyId) {
       return res.status(400).json({
         message: "agentId and propertyId are required",
@@ -24,16 +25,29 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // 3️⃣ Prepare participants (sorted for consistency)
+    // 3️⃣ Confirm the property belongs to this agent
+    const property = await Property.findById(propertyId);
+
+    if (!property) {
+      return res.status(404).json({ message: "Property not found" });
+    }
+
+    if (property.owner._id.toString() !== agentId.toString()) {
+      return res.status(400).json({
+        message: "This property does not belong to this agent",
+      });
+    }
+
+    // 4️⃣ Sort participants for consistency
     const participants = [userId.toString(), agentId.toString()].sort();
 
-    // 4️⃣ Check for existing chat (same 2 users + same property)
+    // 5️⃣ Check if chat already exists for this pair + property
     let chat = await Chat.findOne({
       participants,
       property: propertyId,
     });
 
-    // 5️⃣ If not found, create new chat
+    // 6️⃣ Create if not found
     if (!chat) {
       chat = await Chat.create({
         participants,
@@ -41,7 +55,6 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // 6️⃣ Return chat
     return res.status(200).json(chat);
   } catch (error) {
     console.error("Create/Get Chat Error:", error);
