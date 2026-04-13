@@ -11,7 +11,7 @@ const createOrGetChat = async (req, res) => {
     const { agentId, propertyId } = req.body;
     const userId = req.user._id;
 
-    // 1️⃣ Validate inputs
+    // 1️⃣ Validate input
     if (!agentId || !propertyId) {
       return res.status(400).json({
         message: "agentId and propertyId are required",
@@ -25,11 +25,13 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // 3️⃣ Check property ownership
+    // 3️⃣ Check property exists + belongs to agent
     const property = await Property.findById(propertyId);
 
     if (!property) {
-      return res.status(404).json({ message: "Property not found" });
+      return res.status(404).json({
+        message: "Property not found",
+      });
     }
 
     if (property.owner._id.toString() !== agentId.toString()) {
@@ -38,31 +40,38 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // 4️⃣ Normalize participants
+    // 4️⃣ Build participants
     const participants = [userId.toString(), agentId.toString()].sort();
 
-    // 5️⃣ 🔥 ATOMIC UPSERT (FIXES DUPLICATE ERROR)
-    const chat = await Chat.findOneAndUpdate(
-      {
+    // 5️⃣ Find existing chat
+    let chat = await Chat.findOne({
+      participants,
+      property: propertyId,
+    });
+
+    if (chat) {
+      return res.status(200).json(chat);
+    }
+
+    // 6️⃣ Create chat safely (with duplicate fallback)
+    try {
+      chat = await Chat.create({
         participants,
         property: propertyId,
-      },
-      {
-        $setOnInsert: {
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        chat = await Chat.findOne({
           participants,
           property: propertyId,
-        },
-      },
-      {
-        new: true,
-        upsert: true,
-      },
-    );
+        });
+      } else {
+        throw err;
+      }
+    }
 
     return res.status(200).json(chat);
   } catch (error) {
-    console.error("Create/Get Chat Error:", error);
-
     return res.status(500).json({
       message: error.message,
     });
