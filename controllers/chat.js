@@ -2,7 +2,6 @@
 const Chat = require("../models/chat");
 const Message = require("../models/message");
 const Property = require("../models/property");
-const mongoose = require("mongoose");
 
 // ==========================
 // 1. Create or Fetch a 1-on-1 Chat
@@ -12,26 +11,20 @@ const createOrGetChat = async (req, res) => {
     const { agentId, propertyId } = req.body;
     const userId = req.user._id;
 
-    // 1️⃣ Validate input
     if (!agentId || !propertyId) {
       return res.status(400).json({
         message: "agentId and propertyId are required",
       });
     }
 
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-    const agentObjectId = new mongoose.Types.ObjectId(agentId);
-    const propertyObjectId = new mongoose.Types.ObjectId(propertyId);
-
-    // 2️⃣ Prevent self chat
-    if (userObjectId.equals(agentObjectId)) {
+    if (userId.toString() === agentId.toString()) {
       return res.status(400).json({
         message: "You cannot chat with yourself",
       });
     }
 
-    // 3️⃣ Verify property exists and belongs to agent
-    const property = await Property.findById(propertyObjectId);
+    // ✅ populate owner so owner._id works safely
+    const property = await Property.findById(propertyId).populate("owner");
 
     if (!property) {
       return res.status(404).json({
@@ -39,41 +32,35 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    if (property.owner._id.toString() !== agentObjectId.toString()) {
+    // ✅ safe owner check (works only when owner is populated)
+    if (property.owner._id.toString() !== agentId.toString()) {
       return res.status(400).json({
         message: "This property does not belong to this agent",
       });
     }
 
-    // 4️⃣ Find existing chat (STRICT + RELIABLE)
+    // ✅ normalize participants to prevent duplicates
+    const participants = [userId.toString(), agentId.toString()].sort();
+
+    // ✅ check if chat already exists for this user-agent-property
     let chat = await Chat.findOne({
-      property: propertyObjectId,
-      participants: {
-        $all: [userObjectId, agentObjectId],
-        $size: 2,
-      },
+      property: propertyId,
+      participants,
     });
 
-    // 5️⃣ Create if not found
+    // ✅ if not found, create new chat
     if (!chat) {
       try {
         chat = await Chat.create({
-          participants: [userObjectId, agentObjectId],
-          property: propertyObjectId,
+          participants,
+          property: propertyId,
         });
       } catch (err) {
-        // Handle race condition safely
-        if (err.code === 11000) {
-          chat = await Chat.findOne({
-            property: propertyObjectId,
-            participants: {
-              $all: [userObjectId, agentObjectId],
-              $size: 2,
-            },
-          });
-        } else {
-          throw err;
-        }
+        // handle race condition (double request safety)
+        chat = await Chat.findOne({
+          property: propertyId,
+          participants,
+        });
       }
     }
 
