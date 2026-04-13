@@ -2,6 +2,7 @@
 const Chat = require("../models/chat");
 const Message = require("../models/message");
 const Property = require("../models/property");
+const mongoose = require("mongoose");
 
 // ==========================
 // 1. Create or Fetch a 1-on-1 Chat
