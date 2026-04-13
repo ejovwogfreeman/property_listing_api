@@ -6,26 +6,34 @@ const Message = require("../models/message");
 // 1. Create or Fetch a 1-on-1 Chat
 // ==========================
 const createOrGetChat = async (req, res) => {
-  console.log(req.body);
   try {
-    const { userId, propertyId } = req.body;
-    const loggedInUser = req.user._id;
+    const { agentId, propertyId } = req.body;
+    const userId = req.user._id; // logged-in user
 
-    if (!userId || !propertyId) {
-      return res
-        .status(400)
-        .json({ message: "userId and propertyId are required" });
+    // 1️⃣ Validate inputs
+    if (!agentId || !propertyId) {
+      return res.status(400).json({
+        message: "agentId and propertyId are required",
+      });
     }
 
-    // Sort participants
-    const participants = [loggedInUser.toString(), userId.toString()].sort();
+    // 2️⃣ Prevent self-chat
+    if (userId.toString() === agentId.toString()) {
+      return res.status(400).json({
+        message: "You cannot chat with yourself",
+      });
+    }
 
-    // ✅ IMPORTANT: include property
+    // 3️⃣ Prepare participants (sorted for consistency)
+    const participants = [userId.toString(), agentId.toString()].sort();
+
+    // 4️⃣ Check for existing chat (same 2 users + same property)
     let chat = await Chat.findOne({
       participants,
       property: propertyId,
     });
 
+    // 5️⃣ If not found, create new chat
     if (!chat) {
       chat = await Chat.create({
         participants,
@@ -33,10 +41,11 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    res.json(chat);
+    // 6️⃣ Return chat
+    return res.status(200).json(chat);
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: error.message });
+    console.error("Create/Get Chat Error:", error);
+    return res.status(500).json({ message: error.message });
   }
 };
 
