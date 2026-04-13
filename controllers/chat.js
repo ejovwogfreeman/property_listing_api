@@ -11,7 +11,7 @@ const createOrGetChat = async (req, res) => {
     const { agentId, propertyId } = req.body;
     const userId = req.user._id;
 
-    // 1️⃣ Validate required inputs
+    // 1️⃣ Validate inputs
     if (!agentId || !propertyId) {
       return res.status(400).json({
         message: "agentId and propertyId are required",
@@ -25,40 +25,47 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // 3️⃣ Confirm the property belongs to this agent
+    // 3️⃣ Check property ownership
     const property = await Property.findById(propertyId);
 
     if (!property) {
       return res.status(404).json({ message: "Property not found" });
     }
 
-    if (property.owner._id.toString() !== agentId.toString()) {
+    if (property.owner.toString() !== agentId.toString()) {
       return res.status(400).json({
         message: "This property does not belong to this agent",
       });
     }
 
-    // 4️⃣ Sort participants for consistency
+    // 4️⃣ Normalize participants
     const participants = [userId.toString(), agentId.toString()].sort();
 
-    // 5️⃣ Check if chat already exists for this pair + property
-    let chat = await Chat.findOne({
-      participants,
-      property: propertyId,
-    });
-
-    // 6️⃣ Create if not found
-    if (!chat) {
-      chat = await Chat.create({
+    // 5️⃣ 🔥 ATOMIC UPSERT (FIXES DUPLICATE ERROR)
+    const chat = await Chat.findOneAndUpdate(
+      {
         participants,
         property: propertyId,
-      });
-    }
+      },
+      {
+        $setOnInsert: {
+          participants,
+          property: propertyId,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+      },
+    );
 
     return res.status(200).json(chat);
   } catch (error) {
     console.error("Create/Get Chat Error:", error);
-    return res.status(500).json({ message: error.message });
+
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
