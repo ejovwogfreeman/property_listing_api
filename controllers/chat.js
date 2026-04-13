@@ -11,21 +11,18 @@ const createOrGetChat = async (req, res) => {
     const { agentId, propertyId } = req.body;
     const userId = req.user._id;
 
-    // 1️⃣ Validate input
     if (!agentId || !propertyId) {
       return res.status(400).json({
         message: "agentId and propertyId are required",
       });
     }
 
-    // 2️⃣ Prevent self-chat
     if (userId.toString() === agentId.toString()) {
       return res.status(400).json({
         message: "You cannot chat with yourself",
       });
     }
 
-    // 3️⃣ Check property exists + belongs to agent
     const property = await Property.findById(propertyId);
 
     if (!property) {
@@ -40,33 +37,27 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // 4️⃣ Build participants
-    const participants = [userId.toString(), agentId.toString()].sort();
-
-    // 5️⃣ Find existing chat
+    // FIXED QUERY HERE
     let chat = await Chat.findOne({
-      participants,
+      participants: { $all: [userId, agentId] },
       property: propertyId,
     });
 
-    if (chat) {
-      return res.status(200).json(chat);
-    }
-
-    // 6️⃣ Create chat safely (with duplicate fallback)
-    try {
-      chat = await Chat.create({
-        participants,
-        property: propertyId,
-      });
-    } catch (err) {
-      if (err.code === 11000) {
-        chat = await Chat.findOne({
-          participants,
+    if (!chat) {
+      try {
+        chat = await Chat.create({
+          participants: [userId, agentId],
           property: propertyId,
         });
-      } else {
-        throw err;
+      } catch (err) {
+        if (err.code === 11000) {
+          chat = await Chat.findOne({
+            participants: { $all: [userId, agentId] },
+            property: propertyId,
+          });
+        } else {
+          throw err;
+        }
       }
     }
 
