@@ -297,9 +297,6 @@ const sendMessage = async (req, res) => {
 };
 
 // ==========================
-// GET MESSAGES (Paginated)
-// ==========================
-// ==========================
 // GET ALL MESSAGES IN A CHAT
 // ==========================
 const getMessages = async (req, res) => {
