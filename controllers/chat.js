@@ -93,7 +93,7 @@ const getChatById = async (req, res) => {
     }
 
     // ✅ SECURITY CHECK
-    if (!chat.participants.includes(userId.toString())) {
+    if (!chat.participants.includes(userId)) {
       return res.status(403).json({ message: "Access denied" });
     }
 
