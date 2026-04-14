@@ -109,33 +109,30 @@ const getChatById = async (req, res) => {
 };
 
 // ==========================
-// 3. Get all chats for the logged-in agent
+// 3. Get all chats for the logged-in user
 // ==========================
-const getAgentChats = async (req, res) => {
+const getUserChats = async (req, res) => {
   try {
-    const agentId = req.user._id;
+    const userId = req.user._id;
 
-    // Fetch all chats where the property belongs to this agent
-    const chats = await Chat.find()
-      .populate({
-        path: "property",
-        match: { agent: agentId }, // only properties this agent owns
-        select: "title price images",
-      })
+    const chats = await Chat.find({
+      participants: userId,
+    })
       .populate("participants", "username email avatar")
+      .populate("property", "title price images")
       .populate({
         path: "lastMessage",
-        populate: { path: "sender", select: "username email avatar" },
+        populate: {
+          path: "sender",
+          select: "username email avatar",
+        },
       })
       .sort({ updatedAt: -1 });
 
-    // Filter out chats where the property didn't match (i.e., agent not owner)
-    const filteredChats = chats.filter((chat) => chat.property !== null);
-
-    res.json(filteredChats);
+    return res.json(chats);
   } catch (error) {
-    console.error("Get agent chats error:", error);
-    res.status(500).json({ message: error.message });
+    console.error("Get user chats error:", error);
+    return res.status(500).json({ message: error.message });
   }
 };
 
@@ -192,7 +189,7 @@ const deleteChat = async (req, res) => {
 module.exports = {
   createOrGetChat,
   getChatById,
-  getAgentChats,
+  getUserChats,
   getAllChats,
   deleteChat,
 };

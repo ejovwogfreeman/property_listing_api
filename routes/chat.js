@@ -4,7 +4,7 @@ const router = express.Router();
 const {
   createOrGetChat,
   getChatById,
-  getAgentChats,
+  getUserChats,
   getAllChats, // admin/agent listing
   deleteChat,
 } = require("../controllers/chat");
@@ -24,7 +24,7 @@ router.get("/:chatId", protect, getChatById);
 // ----------------------------------------
 // 3. Admin/Agent: List all chats (dashboard)
 // ----------------------------------------
-router.get("/agent", protect, authorize("admin", "agent"), getAgentChats);
+router.get("/all-chats", protect, getUserChats);
 
 // ----------------------------------------
 // 4. Admin/Agent: List all chats (dashboard)
