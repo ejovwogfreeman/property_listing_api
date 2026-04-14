@@ -5,7 +5,7 @@ const {
   getMessages,
   updateMessage,
   deleteMessage,
-} = require("../controllers/messageController");
+} = require("../controllers/message");
 
 const { protect, authorize } = require("../middlewares/auth");
 const { uploadChatAttachments, uploadNone } = require("../middlewares/upload");
