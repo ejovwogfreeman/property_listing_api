@@ -274,16 +274,26 @@ const sendMessage = async (req, res) => {
     // =====================
     // SOCKET EMIT
     // =====================
-    const otherUser = chat.participants.find(
-      (user) => user._id.toString() !== sender.toString(),
-    );
+    // const otherUser = chat.participants.find(
+    //   (user) => user._id.toString() !== sender.toString(),
+    // );
 
-    if (otherUser) {
-      const targetSocket = global.onlineUsers.get(otherUser._id.toString());
+    // if (otherUser) {
+    //   const targetSocket = global.onlineUsers.get(otherUser._id.toString());
 
-      if (targetSocket) {
-        global.io.to(targetSocket).emit("receive_message", fullMessage);
-      }
+    //   if (targetSocket) {
+    //     global.io.to(targetSocket).emit("receive_message", fullMessage);
+    //   }
+    // }
+
+    if (global.io) {
+      chat.participants.forEach((user) => {
+        const userId = user._id.toString();
+
+        if (userId === sender.toString()) return;
+
+        global.io.to(userId).emit("receive_message", fullMessage);
+      });
     }
 
     return res.status(201).json({
@@ -296,9 +306,6 @@ const sendMessage = async (req, res) => {
   }
 };
 
-// ==========================
-// GET ALL MESSAGES IN A CHAT
-// ==========================
 const getMessages = async (req, res) => {
   try {
     const { chatId } = req.params;
