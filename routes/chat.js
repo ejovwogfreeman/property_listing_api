@@ -3,9 +3,9 @@ const express = require("express");
 const router = express.Router();
 const {
   createOrGetChat,
-  getChatById,
   getUserChats,
-  getAllChats, // admin/agent listing
+  getAllChats,
+  getChatById,
   deleteChat,
 } = require("../controllers/chat");
 
@@ -17,19 +17,19 @@ const { protect, authorize } = require("../middlewares/auth");
 router.post("/create-or-get", protect, createOrGetChat);
 
 // ----------------------------------------
-// 2. Get a single chat by ID (property chat for user)
-// ----------------------------------------
-router.get("/:chatId", protect, getChatById);
-
-// ----------------------------------------
-// 3. Admin/Agent: List all chats (dashboard)
+// 2. Admin/Agent/User: List all chats (dashboard)
 // ----------------------------------------
 router.get("/all-chats", protect, getUserChats);
 
 // ----------------------------------------
-// 4. Admin/Agent: List all chats (dashboard)
+// 3. Admin/Agent: List all chats (dashboard)
 // ----------------------------------------
 router.get("/all", protect, authorize("admin"), getAllChats);
+
+// ----------------------------------------
+// 4. Get a single chat by ID (property chat for user)
+// ----------------------------------------
+router.get("/:chatId", protect, getChatById);
 
 // ----------------------------------------
 // 5. Delete a chat (and all messages) — can be limited to admin/agent if desired

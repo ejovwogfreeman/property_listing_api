@@ -73,7 +73,55 @@ const createOrGetChat = async (req, res) => {
 };
 
 // ==========================
-// 2. Get a single chat by ID
+// 2. Get all chats for the logged-in user
+// ==========================
+const getUserChats = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const chats = await Chat.find({
+      participants: userId,
+    })
+      .populate("participants", "username email avatar")
+      .populate("property", "title price images")
+      .populate({
+        path: "lastMessage",
+        populate: {
+          path: "sender",
+          select: "username email avatar",
+        },
+      })
+      .sort({ updatedAt: -1 });
+
+    return res.json(chats);
+  } catch (error) {
+    console.error("Get user chats error:", error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ==========================
+// 3. Get all chats
+// ==========================
+const getAllChats = async (req, res) => {
+  try {
+    const chats = await Chat.find()
+      .populate("participants", "username email")
+      .populate("property", "title address")
+      .populate({
+        path: "lastMessage",
+        populate: { path: "sender", select: "username email" },
+      })
+      .sort({ updatedAt: -1 });
+
+    res.json(chats);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// ==========================
+// 4. Get a single chat by ID
 // ==========================
 const getChatById = async (req, res) => {
   try {
@@ -109,54 +157,6 @@ const getChatById = async (req, res) => {
 };
 
 // ==========================
-// 3. Get all chats for the logged-in user
-// ==========================
-const getUserChats = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    const chats = await Chat.find({
-      participants: userId,
-    })
-      .populate("participants", "username email avatar")
-      .populate("property", "title price images")
-      .populate({
-        path: "lastMessage",
-        populate: {
-          path: "sender",
-          select: "username email avatar",
-        },
-      })
-      .sort({ updatedAt: -1 });
-
-    return res.json(chats);
-  } catch (error) {
-    console.error("Get user chats error:", error);
-    return res.status(500).json({ message: error.message });
-  }
-};
-
-// ==========================
-// 4. Get all chats
-// ==========================
-const getAllChats = async (req, res) => {
-  try {
-    const chats = await Chat.find()
-      .populate("participants", "username email")
-      .populate("property", "title address")
-      .populate({
-        path: "lastMessage",
-        populate: { path: "sender", select: "username email" },
-      })
-      .sort({ updatedAt: -1 });
-
-    res.json(chats);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// ==========================
 // 5. DELETE A CHAT
 // ==========================
 const deleteChat = async (req, res) => {
@@ -188,8 +188,8 @@ const deleteChat = async (req, res) => {
 
 module.exports = {
   createOrGetChat,
-  getChatById,
   getUserChats,
   getAllChats,
+  getChatById,
   deleteChat,
 };
