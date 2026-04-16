@@ -66,6 +66,9 @@ const createProperty = async (req, res) => {
       address,
       propertyType,
       landType, // for land only
+      landUnit, // for land only
+      landCondition, // for land only
+      landDocTitle, // for land only
       bedroom, // for apartment/house only
       bathroom, // for apartment/house only
       kitchen, // for apartment/house only
@@ -103,6 +106,9 @@ const createProperty = async (req, res) => {
       address,
       propertyType,
       landType: propertyType === "land" ? landType : undefined,
+      landUnit: propertyType === "land" ? landUnit : undefined,
+      landCondition: propertyType === "land" ? landCondition : undefined,
+      landDocTitle: propertyType === "land" ? landDocTitle : undefined,
       bedroom: propertyType !== "land" ? bedroom : undefined,
       bathroom: propertyType !== "land" ? bathroom : undefined,
       kitchen: propertyType !== "land" ? kitchen : undefined,
