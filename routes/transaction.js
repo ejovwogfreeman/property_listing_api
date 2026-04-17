@@ -38,10 +38,10 @@ router.post(
 );
 
 // Get User Transactions
-router.post("/user-transactions", protect, changeTransactionStatus);
+router.get("/user-transactions", protect, changeTransactionStatus);
 
 // Get Agent Transactions
-router.post(
+router.get(
   "/agent-transactions",
   protect,
   authorize("admin"),
@@ -49,7 +49,7 @@ router.post(
 );
 
 // Get All Transactions
-router.post(
+router.get(
   "/all-transactions",
   protect,
   authorize("admin"),
