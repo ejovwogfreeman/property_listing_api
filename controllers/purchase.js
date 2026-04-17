@@ -1,9 +1,9 @@
-const Purchase = require("../models/Purchase");
-const Property = require("../models/Property");
-const Inspection = require("../models/Inspection");
-const User = require("../models/User");
+const Purchase = require("../models/purchase");
+const Property = require("../models/property");
+const Inspection = require("../models/inspection");
+const User = require("../models/user");
 const Escrow = require("../models/Escrow");
-const Notification = require("../models/Notification");
+const Notification = require("../models/notification");
 const {
   initializeTransaction,
   verifyTransaction,

@@ -14,6 +14,7 @@ const chatRoutes = require("./routes/chat");
 const messageRoutes = require("./routes/message");
 const favoriteRoutes = require("./routes/favorite");
 const userRoutes = require("./routes/user");
+const transactionRoutes = require("./routes/transaction");
 // const notificationRoutes = require("./routes/notification");
 // const escrowRoutes = require("./routes/escrow");
 
@@ -55,6 +56,7 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/message", messageRoutes);
 app.use("/api/favorite", favoriteRoutes);
 app.use("/api/user", userRoutes);
+app.use("/api/transaction", transactionRoutes);
 // app.use("/api/notification", notificationRoutes);
 // app.use("/api/escrow", escrowRoutes);
 

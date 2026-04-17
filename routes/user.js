@@ -4,18 +4,15 @@ const router = express.Router();
 const multer = require("multer");
 
 // Middlewares
-const { protect } = require("../middlewares/auth"); // middleware to get req.user from JWT
+const { protect, authorize } = require("../middlewares/auth"); // middleware to get req.user from JWT
 const {
   getMe,
   updateProfile,
   changeProfilePicture,
   getAllAgents,
+  getAllUsers,
 } = require("../controllers/user");
 const { uploadProfilePicture } = require("../middlewares/upload");
-
-// Multer setup for single file upload (profile picture)
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
 
 // ===============================
 // USER ROUTES
@@ -37,5 +34,8 @@ router.post(
 
 // Get all agents
 router.get("/agents", getAllAgents);
+
+// get all users
+router.get("/agents", protect, authorize("admin"), getAllUsers);
 
 module.exports = router;

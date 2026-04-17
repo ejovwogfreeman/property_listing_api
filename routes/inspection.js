@@ -17,46 +17,51 @@ const { protect, authorize } = require("../middlewares/auth");
 // POST /api/inspections/request
 // Body: { propertyId }
 // ---------------------------
-router.post("/inspection/request", protect, requestInspection);
+router.post("/request", protect, requestInspection);
 
 // ---------------------------
 // 2️⃣ Verify Inspection Code
 // POST /api/inspections/verify-code
 // Body: { inspectionId, code }
 // ---------------------------
-router.post("/inspection/verify-code", protect, verifyInspectionCode);
+router.post("/verify-code", protect, verifyInspectionCode);
 
 // ---------------------------
 // 3️⃣ Initialize Inspection Payment
 // POST /api/inspections/init-payment
 // Body: { inspectionId }
 // ---------------------------
-router.post("/inspection/init-payment", protect, initializeInspectionPayment);
+router.post("/init-payment", protect, initializeInspectionPayment);
 
 // ---------------------------
 // 4️⃣ Verify Inspection Payment
 // POST /api/inspections/verify-payment
 // Body: { inspectionId, reference }
 // ---------------------------
-router.post("/inspection/verify-payment", protect, verifyInspectionPayment);
+router.post(
+  "/verify-payment",
+  protect,
+  authorize("admin"),
+  verifyInspectionPayment,
+);
 
 // ---------------------------
 // 5️⃣ Get Inspection Details
 // GET /api/inspections/:inspectionId
 // ---------------------------
-router.get("/inspection/:inspectionId", protect, getInspectionDetails);
+router.get("/:inspectionId", protect, getInspectionDetails);
 
 // ---------------------------
 // Get All Inspections of loggedn in user
 // GET /api/inspections
 // ---------------------------
-router.get("/inspection/user-inspections", protect, getUserInspections);
+router.get("/user-inspections", protect, getUserInspections);
 
 // ---------------------------
 // Get All Inspections of loggedn in agent
 // ---------------------------
 router.get(
-  "/inspection/agent-inspections",
+  "/agent-inspections",
   protect,
   authorize("agent"),
   getAgentInspections,
@@ -65,11 +70,6 @@ router.get(
 // ---------------------------
 // Get All Inspections of loggedn in agent
 // ---------------------------
-router.get(
-  "/inspection/all-inspections",
-  protect,
-  authorize("admin"),
-  getAllInspections,
-);
+router.get("/all-inspections", protect, authorize("admin"), getAllInspections);
 
 module.exports = router;

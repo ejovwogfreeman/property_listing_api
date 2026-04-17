@@ -1,15 +1,15 @@
 const User = require("../models/user");
 const Notification = require("../models/notification");
 const jwt = require("jsonwebtoken");
-const { OAuth2Client } = require("google-auth-library");
-const Email = require("../middlewares/email");
-const generateCode = require("../middlewares/generateCode");
+// const { OAuth2Client } = require("google-auth-library");
+// const Email = require("../middlewares/email");
+// const generateCode = require("../middlewares/generateCode");
 const { uploadImages } = require("../middlewares/cloudinary");
 
 /**
  * @desc Get logged-in user
  */
-getMe = async (req, res) => {
+const getMe = async (req, res) => {
   try {
     const authHeader = req.header("Authorization");
     if (!authHeader)
@@ -35,7 +35,7 @@ getMe = async (req, res) => {
   }
 };
 
-updateProfile = async (req, res) => {
+const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
     const { name, address, phoneNumber } = req.body;
@@ -88,7 +88,7 @@ updateProfile = async (req, res) => {
   }
 };
 
-changeProfilePicture = async (req, res) => {
+const changeProfilePicture = async (req, res) => {
   try {
     const userId = req.user._id;
 
@@ -139,25 +139,6 @@ changeProfilePicture = async (req, res) => {
   }
 };
 
-// const getAllUsers = async (req, res) => {
-//   try {
-//     const users = await User.find();
-
-//     return res.status(200).json({
-//       success: true,
-//       message: "All users fetched successfully",
-//       total: users.length,
-//       data: users,
-//     });
-//   } catch (error) {
-//     console.error(error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error",
-//     });
-//   }
-// };
-
 const getAllAgents = async (req, res) => {
   try {
     const agents = await User.find({ role: "agent" });
@@ -177,9 +158,29 @@ const getAllAgents = async (req, res) => {
   }
 };
 
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({ role: "user" });
+
+    return res.status(200).json({
+      success: true,
+      message: "All users fetched successfully",
+      total: users.length,
+      data: users,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
 module.exports = {
   getMe,
   updateProfile,
   changeProfilePicture,
   getAllAgents,
+  getAllUsers,
 };
