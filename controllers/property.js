@@ -65,7 +65,8 @@ const createProperty = async (req, res) => {
       price,
       address,
       propertyType,
-      landType, // for land only
+      listingType,
+      landSize, // for land only
       landUnit, // for land only
       landCondition, // for land only
       landDocTitle, // for land only
@@ -92,9 +93,14 @@ const createProperty = async (req, res) => {
       ? await uploadImages(req.files.images)
       : [];
 
+    // Upload land document (multiple)
+    const landDocuments = req.files?.landDocuments
+      ? await uploadImages(req.files.landDocuments)
+      : [];
+
     // Upload video (single)
-    const videoUrls = req.files?.video
-      ? await uploadVideos(req.files.video)
+    const videos = req.files?.videos
+      ? await uploadVideos(req.files.videos)
       : [];
     // const video = videoUrls[0] || null;
 
@@ -105,18 +111,20 @@ const createProperty = async (req, res) => {
       price,
       address,
       propertyType,
-      landType: propertyType === "land" ? landType : undefined,
-      landUnit: propertyType === "land" ? landUnit : undefined,
-      landCondition: propertyType === "land" ? landCondition : undefined,
-      landDocTitle: propertyType === "land" ? landDocTitle : undefined,
-      bedroom: propertyType !== "land" ? bedroom : undefined,
-      bathroom: propertyType !== "land" ? bathroom : undefined,
-      kitchen: propertyType !== "land" ? kitchen : undefined,
+      listingType,
+      landSize: propertyType === "land" ? landSize : null,
+      landUnit: propertyType === "land" ? landUnit : null,
+      landCondition: propertyType === "land" ? landCondition : null,
+      landDocTitle: propertyType === "land" ? landDocTitle : null,
+      landDocuments: propertyType === "land" ? landDocuments : null,
+      bedroom: propertyType !== "land" ? bedroom : null,
+      bathroom: propertyType !== "land" ? bathroom : null,
+      kitchen: propertyType !== "land" ? kitchen : null,
       inspectionFee,
       serviceCharge,
       nearbyPlaces: nearbyPlaces || [],
       images,
-      video: videoUrls,
+      videos,
       owner,
     });
 

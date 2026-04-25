@@ -1,27 +1,3 @@
-// const mongoose = require("mongoose");
-// const Schema = mongoose.Schema;
-
-// const PropertySchema = new Schema({
-//   title: { type: String, required: true },
-//   description: String,
-//   price: Number,
-//   inspectionFee: Number,
-//   address: String,
-//   images: [String], // cloudinary URLs
-//   video: String, // cloudinary URL
-//   owner: { type: Schema.Types.ObjectId, ref: "User" },
-//   status: {
-//     type: String,
-//     enum: ["available", "sold", "rented"],
-//     default: "available",
-//   },
-//   createdAt: { type: Date, default: Date.now },
-// });
-
-// module.exports = mongoose.model("Property", PropertySchema);
-
-// // please remember to write a controller function where property status can be set to pending, available, sold, rented etc
-
 const mongoose = require("mongoose");
 
 const propertySchema = new mongoose.Schema(
@@ -42,7 +18,7 @@ const propertySchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
-    video: {
+    videos: {
       type: [String],
       default: [],
     },
@@ -52,7 +28,13 @@ const propertySchema = new mongoose.Schema(
       enum: ["land", "apartment", "duplex", "bungalow"],
       // Helps differentiate land vs apartment/house
     },
-    landType: {
+    listingType: {
+      type: String,
+      required: true,
+      enum: ["rent", "sale"],
+      // Helps differentiate land vs apartment/house
+    },
+    landSize: {
       type: String,
       // Land-only field
     },
@@ -74,6 +56,10 @@ const propertySchema = new mongoose.Schema(
         "Governor's Consent",
         "Deed of Assignment",
       ],
+    },
+    landDocuments: {
+      type: [String],
+      default: [],
     },
     bedroom: {
       type: Number,

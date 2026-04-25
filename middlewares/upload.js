@@ -5,14 +5,15 @@ const uploadPropertyFiles = multer({
   storage,
 }).fields([
   { name: "images", maxCount: 10 },
-  { name: "video", maxCount: 1 },
+  { name: "landDocuments", maxCount: 10 },
+  { name: "videos", maxCount: 1 },
 ]);
 
 const uploadChatAttachments = multer({
   storage,
 }).fields([
   { name: "images", maxCount: 5 },
-  { name: "videos", maxCount: 5 },
+  { name: "videos", maxCount: 1 },
 ]);
 
 const uploadProfilePicture = multer({
