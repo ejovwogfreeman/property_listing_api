@@ -112,7 +112,7 @@ initializePurchasePayment = async (req, res) => {
       seller: purchase.owner,
       amount: purchase.price,
       status: "pending",
-      type: "inspection",
+      type: "purchase",
     });
 
     // ------------------------------

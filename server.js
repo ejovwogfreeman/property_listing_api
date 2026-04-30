@@ -15,6 +15,8 @@ const messageRoutes = require("./routes/message");
 const favoriteRoutes = require("./routes/favorite");
 const userRoutes = require("./routes/user");
 const transactionRoutes = require("./routes/transaction");
+const inspectionRoutes = require("./routes/inspection");
+const purchaseRoutes = require("./routes/purchase");
 // const notificationRoutes = require("./routes/notification");
 // const escrowRoutes = require("./routes/escrow");
 
@@ -57,6 +59,8 @@ app.use("/api/message", messageRoutes);
 app.use("/api/favorite", favoriteRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/transaction", transactionRoutes);
+app.use("/api/inspection", inspectionRoutes);
+app.use("/api/purchase", purchaseRoutes);
 // app.use("/api/notification", notificationRoutes);
 // app.use("/api/escrow", escrowRoutes);
 

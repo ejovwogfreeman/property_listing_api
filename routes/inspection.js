@@ -31,7 +31,7 @@ router.post("/verify-code", protect, verifyInspectionCode);
 // POST /api/inspections/init-payment
 // Body: { inspectionId }
 // ---------------------------
-router.post("/init-payment", protect, initializeInspectionPayment);
+router.post("/initialize-payment", protect, initializeInspectionPayment);
 
 // ---------------------------
 // 4️⃣ Verify Inspection Payment

@@ -40,17 +40,14 @@ const propertySchema = new mongoose.Schema(
     },
     landUnit: {
       type: String,
-      required: true,
       enum: ["sqm", "acres", "hectares"],
     },
     landCondition: {
       type: String,
-      required: true,
       enum: ["bare land", "fenced land", "land with structure"],
     },
     landDocTitle: {
       type: String,
-      required: true,
       enum: [
         "Certificate of Ownership",
         "Governor's Consent",

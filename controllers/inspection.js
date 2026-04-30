@@ -3,7 +3,7 @@ const Property = require("../models/property");
 const User = require("../models/user");
 const Escrow = require("../models/Escrow");
 const Notification = require("../models/notification");
-const { generateCode } = require("../middlewares/codeGenerator");
+const generateCode = require("../middlewares/generateCode");
 const {
   initializeTransaction,
   verifyTransaction,
