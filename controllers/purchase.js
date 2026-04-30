@@ -2,7 +2,7 @@ const Purchase = require("../models/purchase");
 const Property = require("../models/property");
 const Inspection = require("../models/inspection");
 const User = require("../models/user");
-const Escrow = require("../models/Escrow");
+const Escrow = require("../models/escrow");
 const Notification = require("../models/notification");
 const {
   initializeTransaction,

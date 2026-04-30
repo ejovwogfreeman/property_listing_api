@@ -1,7 +1,7 @@
 const Inspection = require("../models/inspection");
 const Property = require("../models/property");
 const User = require("../models/user");
-const Escrow = require("../models/Escrow");
+const Escrow = require("../models/escrow");
 const Notification = require("../models/notification");
 const generateCode = require("../middlewares/generateCode");
 const {
