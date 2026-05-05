@@ -3,7 +3,8 @@ const router = express.Router();
 // const propertyController = require("../controllers/property");
 const {
   createProperty,
-  listProperties,
+  getAllProperties,
+  getAgentProperties,
   getProperty,
   updateProperty,
   deleteProperty,
@@ -26,7 +27,18 @@ router.post(
 // ------------------------
 // Get all properties
 // Public
-router.get("/", listProperties);
+router.get("/", getAllProperties);
+
+// ------------------------
+// Get all agent properties
+// Public
+router.get(
+  "/agent/:id",
+  protect,
+  authorize("admin", "agent"),
+  uploadPropertyFiles,
+  getAllProperties,
+);
 
 // ------------------------
 // Get single property by ID

@@ -83,6 +83,11 @@ const propertySchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    status: {
+      type: String,
+      enum: ["pending", "paid", "completed", "cancelled"],
+      default: "pending",
+    },
     owner: {
       _id: {
         type: mongoose.Schema.Types.ObjectId,

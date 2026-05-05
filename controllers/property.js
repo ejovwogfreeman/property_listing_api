@@ -155,7 +155,7 @@ const createProperty = async (req, res) => {
 /**
  * @desc Get all properties
  */
-listProperties = async (req, res) => {
+const getAllProperties = async (req, res) => {
   try {
     const props = await Property.find();
     res.json({ success: true, properties: props });
@@ -166,9 +166,33 @@ listProperties = async (req, res) => {
 };
 
 /**
+ * @desc Get all properties for a specific agent
+ */
+const getAgentProperties = async (req, res) => {
+  try {
+    const agentId = req.params.id;
+
+    const props = await Property.find({
+      "owner._id": agentId,
+    });
+
+    res.json({
+      success: true,
+      properties: props,
+    });
+  } catch (err) {
+    console.error("getAgentProperties error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+/**
  * @desc Get single property
  */
-getProperty = async (req, res) => {
+const getProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id).populate(
       "owner",
@@ -367,7 +391,7 @@ const updateProperty = async (req, res) => {
 /**
  * @desc Delete property
  */
-deleteProperty = async (req, res) => {
+const deleteProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id);
     if (!prop)
@@ -412,7 +436,8 @@ deleteProperty = async (req, res) => {
 
 module.exports = {
   createProperty,
-  listProperties,
+  getAllProperties,
+  getAgentProperties,
   getProperty,
   updateProperty,
   deleteProperty,
