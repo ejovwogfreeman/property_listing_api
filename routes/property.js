@@ -37,7 +37,7 @@ router.get(
   protect,
   authorize("admin", "agent"),
   uploadPropertyFiles,
-  getAllProperties,
+  getAgentProperties,
 );
 
 // ------------------------
