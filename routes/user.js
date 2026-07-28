@@ -9,10 +9,14 @@ const {
   getMe,
   updateProfile,
   changeProfilePicture,
+  onboardAgent,
   getAllAgents,
   getAllUsers,
 } = require("../controllers/user");
-const { uploadProfilePicture } = require("../middlewares/upload");
+const {
+  uploadProfilePicture,
+  uploadOnboardingFile,
+} = require("../middlewares/upload");
 
 // ===============================
 // USER ROUTES
@@ -30,6 +34,15 @@ router.post(
   protect,
   uploadProfilePicture,
   changeProfilePicture,
+);
+
+// PUT or PATCH endpoint to onboard the agent
+router.patch(
+  "/onboard-agent",
+  protect,
+  authorize("agent"),
+  uploadOnboardingFile,
+  onboardAgent,
 );
 
 // Get all agents

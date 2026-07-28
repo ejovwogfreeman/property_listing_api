@@ -139,6 +139,102 @@ const changeProfilePicture = async (req, res) => {
   }
 };
 
+/**
+ * @desc Onboard an agent by submitting professional details and document/ID files
+ */
+const onboardAgent = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const {
+      about,
+      yearsOfExperience,
+      serviceArea,
+      languages,
+      businessName,
+      licenceNumber,
+      officeAddress,
+      socialLinkOrWebsite,
+    } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Verify user is an agent
+    if (user.role !== "agent") {
+      return res.status(403).json({
+        message: "Only users with the agent role can complete onboarding",
+      });
+    }
+
+    // Handle files upload using your existing uploadImages helper pattern
+    // Assuming files are passed as req.files.governmentId and req.files.licenseDoc
+    const governmentIdUrls = req.files?.governmentId
+      ? await uploadImages(req.files.governmentId)
+      : user.governmentId;
+
+    const licenseDocUrls = req.files?.licenseDoc
+      ? await uploadImages(req.files.licenseDoc)
+      : user.licenseDoc;
+
+    // Update text fields if provided
+    if (about !== undefined) user.about = about;
+    if (yearsOfExperience !== undefined)
+      user.yearsOfExperience = yearsOfExperience;
+
+    // Handle array fields (parsing if they come in as stringified JSON from FormData)
+    if (serviceArea !== undefined) {
+      user.serviceArea =
+        typeof serviceArea === "string" ? JSON.parse(serviceArea) : serviceArea;
+    }
+    if (languages !== undefined) {
+      user.languages =
+        typeof languages === "string" ? JSON.parse(languages) : languages;
+    }
+
+    if (businessName !== undefined) user.businessName = businessName;
+    if (licenceNumber !== undefined) user.licenceNumber = licenceNumber;
+    if (officeAddress !== undefined) user.officeAddress = officeAddress;
+    if (socialLinkOrWebsite !== undefined)
+      user.socialLinkOrWebsite = socialLinkOrWebsite;
+
+    // Assign uploaded file URLs
+    user.governmentId = governmentIdUrls;
+    user.licenseDoc = licenseDocUrls;
+
+    // Mark onboarding as complete
+    user.isOnboarding = true;
+
+    await user.save();
+
+    // Notify admins about agent onboarding submission
+    const admins = await User.find({ role: "admin" });
+    for (const admin of admins) {
+      const notif = await Notification.create({
+        user: admin._id,
+        title: "Agent Onboarded",
+        message: `${user.name} submitted their agent onboarding details`,
+        meta: { userId: user._id },
+      });
+
+      const adminSocketId = global.onlineUsers?.get(admin._id.toString());
+      if (adminSocketId && global.io) {
+        global.io.to(adminSocketId).emit("notification", notif);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent onboarding submitted successfully",
+      user,
+    });
+  } catch (err) {
+    console.error("onboardAgent error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
+  }
+};
+
 const getAllAgents = async (req, res) => {
   try {
     const agents = await User.find({ role: "agent" });
@@ -181,6 +277,7 @@ module.exports = {
   getMe,
   updateProfile,
   changeProfilePicture,
+  onboardAgent,
   getAllAgents,
   getAllUsers,
 };

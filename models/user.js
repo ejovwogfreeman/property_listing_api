@@ -25,6 +25,17 @@ const UserSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  // Fields converted to camelCase
+  about: { type: String, default: null },
+  yearsOfExperience: { type: Number, default: 0 },
+  serviceArea: { type: [String], default: [] },
+  languages: { type: [String], default: [] },
+  businessName: { type: String, default: null },
+  licenceNumber: { type: String, default: null },
+  officeAddress: { type: String, default: null },
+  socialLinkOrWebsite: { type: String, default: null },
+  governmentId: { type: [String], default: [] },
+  licenseDoc: { type: [String], default: [] },
   createdAt: { type: Date, default: Date.now },
 });
 

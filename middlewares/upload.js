@@ -20,6 +20,10 @@ const uploadProfilePicture = multer({
   storage,
 }).fields([{ name: "images", maxCount: 1 }]);
 
+const uploadOnboardingFile = multer({
+  storage,
+}).fields([{ name: "images", maxCount: 1 }]);
+
 // For routes that use FormData but DO NOT upload files
 const uploadNone = multer({ storage }).none();
 
@@ -27,5 +31,6 @@ module.exports = {
   uploadPropertyFiles,
   uploadChatAttachments,
   uploadProfilePicture,
+  uploadOnboardingFile,
   uploadNone,
 };
