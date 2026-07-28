@@ -8,6 +8,7 @@ const UserSchema = new mongoose.Schema({
   isGoogleUser: { type: Boolean, default: false },
   role: { type: String, enum: ["user", "agent", "admin"], default: "user" },
   verificationCode: { type: Number, default: false },
+  isOnboarding: { type: Boolean, default: false },
   isVerified: { type: Boolean, default: false },
   rating: {
     type: Number,
