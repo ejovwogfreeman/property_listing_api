@@ -31,7 +31,7 @@ const UserSchema = new mongoose.Schema({
   serviceArea: { type: [String], default: [] },
   languages: { type: [String], default: [] },
   businessName: { type: String, default: null },
-  licenceNumber: { type: String, default: null },
+  licenseNumber: { type: String, default: null },
   officeAddress: { type: String, default: null },
   socialLinkOrWebsite: { type: String, default: null },
   governmentId: { type: [String], default: [] },

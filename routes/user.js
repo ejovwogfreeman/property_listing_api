@@ -15,7 +15,7 @@ const {
 } = require("../controllers/user");
 const {
   uploadProfilePicture,
-  uploadOnboardingFile,
+  uploadOnboardingFiles,
 } = require("../middlewares/upload");
 
 // ===============================
@@ -41,7 +41,7 @@ router.patch(
   "/onboard-agent",
   protect,
   authorize("agent"),
-  uploadOnboardingFile,
+  uploadOnboardingFiles,
   onboardAgent,
 );
 

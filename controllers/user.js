@@ -151,7 +151,7 @@ const onboardAgent = async (req, res) => {
       serviceArea,
       languages,
       businessName,
-      licenceNumber,
+      licenseNumber,
       officeAddress,
       socialLinkOrWebsite,
     } = req.body;
@@ -170,29 +170,48 @@ const onboardAgent = async (req, res) => {
     // Assuming files are passed as req.files.governmentId and req.files.licenseDoc
     const governmentIdUrls = req.files?.governmentId
       ? await uploadImages(req.files.governmentId)
-      : user.governmentId;
+      : [];
 
     const licenseDocUrls = req.files?.licenseDoc
       ? await uploadImages(req.files.licenseDoc)
-      : user.licenseDoc;
+      : [];
 
     // Update text fields if provided
     if (about !== undefined) user.about = about;
     if (yearsOfExperience !== undefined)
       user.yearsOfExperience = yearsOfExperience;
 
-    // Handle array fields (parsing if they come in as stringified JSON from FormData)
+    // Handle array fields safely without breaking on plain strings
     if (serviceArea !== undefined) {
-      user.serviceArea =
-        typeof serviceArea === "string" ? JSON.parse(serviceArea) : serviceArea;
+      try {
+        user.serviceArea =
+          typeof serviceArea === "string"
+            ? JSON.parse(serviceArea)
+            : serviceArea;
+      } catch (e) {
+        // Fallback if it's a plain comma-separated string or just text like "test"
+        user.serviceArea =
+          typeof serviceArea === "string"
+            ? serviceArea.split(",").map((s) => s.trim())
+            : serviceArea;
+      }
     }
+
     if (languages !== undefined) {
-      user.languages =
-        typeof languages === "string" ? JSON.parse(languages) : languages;
+      try {
+        user.languages =
+          typeof languages === "string" ? JSON.parse(languages) : languages;
+      } catch (e) {
+        // Fallback if it's a plain comma-separated string or just text like "English"
+        user.languages =
+          typeof languages === "string"
+            ? languages.split(",").map((l) => l.trim())
+            : languages;
+      }
     }
 
     if (businessName !== undefined) user.businessName = businessName;
-    if (licenceNumber !== undefined) user.licenceNumber = licenceNumber;
+    if (licenseNumber !== undefined) user.licenseNumber = licenseNumber;
     if (officeAddress !== undefined) user.officeAddress = officeAddress;
     if (socialLinkOrWebsite !== undefined)
       user.socialLinkOrWebsite = socialLinkOrWebsite;
