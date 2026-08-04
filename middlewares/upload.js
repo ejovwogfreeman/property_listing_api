@@ -5,7 +5,7 @@ const uploadPropertyFiles = multer({
   storage,
 }).fields([
   { name: "images", maxCount: 10 },
-  { name: "landDocuments", maxCount: 10 },
+  { name: "legalDocuments", maxCount: 10 },
   { name: "videos", maxCount: 1 },
 ]);
 

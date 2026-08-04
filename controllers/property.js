@@ -70,6 +70,7 @@ const createProperty = async (req, res) => {
       landUnit, // for land only
       landCondition, // for land only
       landDocTitle, // for land only
+      landType, //for land only
       bedroom, // for apartment/house only
       bathroom, // for apartment/house only
       kitchen, // for apartment/house only
@@ -94,8 +95,8 @@ const createProperty = async (req, res) => {
       : [];
 
     // Upload land document (multiple)
-    const landDocuments = req.files?.landDocuments
-      ? await uploadImages(req.files.landDocuments)
+    const legalDocuments = req.files?.legalDocuments
+      ? await uploadImages(req.files.legalDocuments)
       : [];
 
     // Upload video (single)
@@ -116,7 +117,8 @@ const createProperty = async (req, res) => {
       landUnit: propertyType === "land" ? landUnit : null,
       landCondition: propertyType === "land" ? landCondition : null,
       landDocTitle: propertyType === "land" ? landDocTitle : null,
-      landDocuments: propertyType === "land" ? landDocuments : null,
+      landType: propertyType === "land" ? landType : null,
+      legalDocuments: legalDocuments,
       bedroom: propertyType !== "land" ? bedroom : null,
       bathroom: propertyType !== "land" ? bathroom : null,
       kitchen: propertyType !== "land" ? kitchen : null,

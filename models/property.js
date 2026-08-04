@@ -54,7 +54,12 @@ const propertySchema = new mongoose.Schema(
         "Deed of Assignment",
       ],
     },
-    landDocuments: {
+    landType: {
+      type: String,
+      required: true,
+      enum: ["residential", "commercial", "agriculture"],
+    },
+    legalDocuments: {
       type: [String],
       default: [],
     },
