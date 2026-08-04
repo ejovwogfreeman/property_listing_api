@@ -56,7 +56,6 @@ const propertySchema = new mongoose.Schema(
     },
     landType: {
       type: String,
-      required: true,
       enum: ["residential", "commercial", "agriculture"],
     },
     legalDocuments: {
