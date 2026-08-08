@@ -89,7 +89,8 @@ const propertySchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "paid", "completed", "cancelled"],
+      // enum: ["pending", "paid", "completed", "cancelled"],
+      enum: ["pending", "approved", "cancelled"],
       default: "pending",
     },
     owner: {
