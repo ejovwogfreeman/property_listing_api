@@ -329,6 +329,7 @@ const updateProperty = async (req, res) => {
       address,
       propertyType,
       landType,
+      listingType,
       bedroom,
       bathroom,
       kitchen,
