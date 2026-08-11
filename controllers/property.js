@@ -6,57 +6,6 @@ const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
  * @desc Create a new property
  */
 
-// const createProperty = async (req, res) => {
-//   try {
-//     const { title, description, price, address } = req.body;
-//     const owner = req.user._id;
-
-//     // Upload images (multiple)
-//     const images = req.files?.images
-//       ? await uploadImages(req.files.images)
-//       : [];
-
-//     // Upload video (single)
-//     const videoUrls = req.files?.video
-//       ? await uploadVideos(req.files.video)
-//       : [];
-//     const video = videoUrls[0] || null;
-
-//     // Create property
-//     const prop = await Property.create({
-//       title,
-//       description,
-//       price,
-//       address,
-//       images,
-//       video,
-//       owner,
-//     });
-
-//     // Create notification
-//     await Notification.create({
-//       user: owner,
-//       title: "Property Created",
-//       message: `Your property "${title}" was created successfully.`,
-//       meta: { propertyId: prop._id },
-//     });
-
-//     // Broadcast
-//     if (global.io)
-//       global.io.emit("notification", {
-//         type: "property_created",
-//         title: "New Property Listed",
-//         message: `New property "${title}" just got listed.`,
-//         propertyId: prop._id,
-//       });
-
-//     res.status(201).json({ success: true, property: prop });
-//   } catch (err) {
-//     console.error("createProperty error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
-
 const createProperty = async (req, res) => {
   try {
     const {
@@ -241,75 +190,15 @@ const getProperty = async (req, res) => {
 /**
  * @desc Update property
  */
-// updateProperty = async (req, res) => {
-//   try {
-//     const prop = await Property.findById(req.params.id);
-//     if (!prop)
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Property not found" });
-
-//     // Check ownership or admin role
-//     if (
-//       prop.owner.toString() !== req.user._id.toString() &&
-//       req.user.role !== "admin"
-//     ) {
-//       return res
-//         .status(403)
-//         .json({ success: false, message: "Not authorized" });
-//     }
-
-//     const { title, description, price, address } = req.body;
-//     if (title) prop.title = title;
-//     if (description) prop.description = description;
-//     if (price) prop.price = price;
-//     if (address) prop.address = address;
-
-//     // handle new uploads
-//     if (req.files && req.files["images"]) {
-//       const images = req.files["images"].map(
-//         (f) => f.path || f.url || f.secure_url || f.location || "",
-//       );
-//       prop.images.push(...images);
-//     }
-
-//     if (req.files && req.files["video"] && req.files["video"][0]) {
-//       const v = req.files["video"][0];
-//       prop.video = v.path || v.url || v.secure_url || v.location || prop.video;
-//     }
-
-//     await prop.save();
-
-//     // Notify owner
-//     await Notification.create({
-//       user: prop.owner,
-//       title: "Property Updated",
-//       message: `Your property "${prop.title}" was updated.`,
-//       meta: { propertyId: prop._id },
-//     });
-
-//     if (global.io)
-//       global.io.emit("notification", {
-//         type: "property_updated",
-//         title: "Property Updated",
-//         message: `Property "${prop.title}" was updated.`,
-//         propertyId: prop._id,
-//       });
-
-//     res.json({ success: true, property: prop });
-//   } catch (err) {
-//     console.error("updateProperty error:", err);
-//     res.status(500).json({ success: false, message: "Server error" });
-//   }
-// };
 
 const updateProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id);
-    if (!prop)
+    if (!prop) {
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
+    }
 
     // Check ownership or admin role
     if (
@@ -321,88 +210,223 @@ const updateProperty = async (req, res) => {
         .json({ success: false, message: "Not authorized" });
     }
 
-    // Destructure all possible fields (Added listingType here)
     const {
       title,
       description,
       price,
       address,
       propertyType,
+      listingType,
+      landSize,
+      landUnit,
+      landCondition,
+      landDocTitle,
       landType,
-      listingType, // <-- Added this
       bedroom,
       bathroom,
       kitchen,
       inspectionFee,
       serviceCharge,
-      nearbyPlaces, // array
+      nearbyPlaces, // array of strings (or stringified array from FormData)
     } = req.body;
 
-    // Update fields if provided
-    if (title) prop.title = title;
-    if (description) prop.description = description;
-    if (price) prop.price = price;
-    if (address) prop.address = address;
-    if (propertyType) prop.propertyType = propertyType;
-    if (listingType) prop.listingType = listingType; // <-- Added this check
+    // Update basic text fields if provided
+    if (title !== undefined) prop.title = title;
+    if (description !== undefined) prop.description = description;
+    if (price !== undefined) prop.price = price;
+    if (address !== undefined) prop.address = address;
+    if (propertyType !== undefined) prop.propertyType = propertyType;
+    if (listingType !== undefined) prop.listingType = listingType;
+    if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
+    if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
 
-    // Conditional fields
-    if (prop.propertyType === "land") {
-      if (landType) prop.landType = landType;
-      prop.bedroom = undefined;
-      prop.bathroom = undefined;
-      prop.kitchen = undefined;
+    // Handle nearbyPlaces array safely (supports FormData parsing if sent as a string)
+    if (nearbyPlaces !== undefined) {
+      try {
+        prop.nearbyPlaces =
+          typeof nearbyPlaces === "string"
+            ? JSON.parse(nearbyPlaces)
+            : nearbyPlaces;
+      } catch (e) {
+        prop.nearbyPlaces =
+          typeof nearbyPlaces === "string"
+            ? nearbyPlaces.split(",").map((s) => s.trim())
+            : nearbyPlaces;
+      }
+    }
+
+    // Conditional propertyType-specific fields update
+    const activePropertyType = propertyType || prop.propertyType;
+
+    if (activePropertyType === "land") {
+      if (landSize !== undefined) prop.landSize = landSize;
+      if (landUnit !== undefined) prop.landUnit = landUnit;
+      if (landCondition !== undefined) prop.landCondition = landCondition;
+      if (landDocTitle !== undefined) prop.landDocTitle = landDocTitle;
+      if (landType !== undefined) prop.landType = landType;
+
+      // Clear apartment/house specific fields
+      prop.bedroom = null;
+      prop.bathroom = null;
+      prop.kitchen = null;
     } else {
       if (bedroom !== undefined) prop.bedroom = bedroom;
       if (bathroom !== undefined) prop.bathroom = bathroom;
       if (kitchen !== undefined) prop.kitchen = kitchen;
-      prop.landType = undefined;
+
+      // Clear land specific fields
+      prop.landSize = null;
+      prop.landUnit = null;
+      prop.landCondition = null;
+      prop.landDocTitle = null;
+      prop.landType = null;
     }
 
-    if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
-    if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
-    if (nearbyPlaces) prop.nearbyPlaces = nearbyPlaces;
-
-    // Handle new uploads
-    if (req.files && req.files.images) {
-      const images = req.files.images.map(
-        (f) => f.path || f.url || f.secure_url || f.location || "",
-      );
-      prop.images.push(...images);
+    // Handle new media/file uploads (appends or replaces based on your requirement)
+    if (req.files?.images) {
+      const newImages = await uploadImages(req.files.images);
+      prop.images.push(...newImages); // Appends new images to existing ones
     }
 
-    if (req.files && req.files.video && req.files.video[0]) {
-      const v = req.files.video[0];
-      prop.video = v.path || v.url || v.secure_url || v.location || prop.video;
+    if (req.files?.legalDocuments) {
+      const newLegalDocs = await uploadImages(req.files.legalDocuments);
+      prop.legalDocuments.push(...newLegalDocs);
+    }
+
+    if (req.files?.videos) {
+      const newVideos = await uploadVideos(req.files.videos);
+      if (newVideos && newVideos.length > 0) {
+        prop.videos.push(...newVideos);
+      }
     }
 
     await prop.save();
 
-    // Notify owner
+    // Create notification
     await Notification.create({
       user: prop.owner._id,
       title: "Property Updated",
-      message: `Your property "${prop.title}" was updated.`,
+      message: `Your property "${prop.title}" was updated successfully.`,
       meta: { propertyId: prop._id },
     });
 
-    // Broadcast via socket
-    if (global.io)
+    // Broadcast to global socket
+    if (global.io) {
       global.io.emit("notification", {
         type: "property_updated",
         title: "Property Updated",
         message: `Property "${prop.title}" was updated.`,
         propertyId: prop._id,
       });
+    }
 
-    res.json({ success: true, property: prop });
+    res.status(200).json({ success: true, property: prop });
   } catch (err) {
     console.error("updateProperty error:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// const updateProperty = async (req, res) => {
+//   try {
+//     const prop = await Property.findById(req.params.id);
+//     if (!prop)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Property not found" });
+
+//     // Check ownership or admin role
+//     if (
+//       prop.owner._id.toString() !== req.user._id.toString() &&
+//       req.user.role !== "admin"
+//     ) {
+//       return res
+//         .status(403)
+//         .json({ success: false, message: "Not authorized" });
+//     }
+
+//     // Destructure all possible fields (Added listingType here)
+//     const {
+//       title,
+//       description,
+//       price,
+//       address,
+//       propertyType,
+//       landType,
+//       listingType, // <-- Added this
+//       bedroom,
+//       bathroom,
+//       kitchen,
+//       inspectionFee,
+//       serviceCharge,
+//       nearbyPlaces, // array
+//     } = req.body;
+
+//     // Update fields if provided
+//     if (title) prop.title = title;
+//     if (description) prop.description = description;
+//     if (price) prop.price = price;
+//     if (address) prop.address = address;
+//     if (propertyType) prop.propertyType = propertyType;
+//     if (listingType) prop.listingType = listingType; // <-- Added this check
+
+//     // Conditional fields
+//     if (prop.propertyType === "land") {
+//       if (landType) prop.landType = landType;
+//       prop.bedroom = undefined;
+//       prop.bathroom = undefined;
+//       prop.kitchen = undefined;
+//     } else {
+//       if (bedroom !== undefined) prop.bedroom = bedroom;
+//       if (bathroom !== undefined) prop.bathroom = bathroom;
+//       if (kitchen !== undefined) prop.kitchen = kitchen;
+//       prop.landType = undefined;
+//     }
+
+//     if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
+//     if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
+//     if (nearbyPlaces) prop.nearbyPlaces = nearbyPlaces;
+
+//     // Handle new uploads
+//     if (req.files && req.files.images) {
+//       const images = req.files.images.map(
+//         (f) => f.path || f.url || f.secure_url || f.location || "",
+//       );
+//       prop.images.push(...images);
+//     }
+
+//     if (req.files && req.files.video && req.files.video[0]) {
+//       const v = req.files.video[0];
+//       prop.video = v.path || v.url || v.secure_url || v.location || prop.video;
+//     }
+
+//     await prop.save();
+
+//     // Notify owner
+//     await Notification.create({
+//       user: prop.owner._id,
+//       title: "Property Updated",
+//       message: `Your property "${prop.title}" was updated.`,
+//       meta: { propertyId: prop._id },
+//     });
+
+//     // Broadcast via socket
+//     if (global.io)
+//       global.io.emit("notification", {
+//         type: "property_updated",
+//         title: "Property Updated",
+//         message: `Property "${prop.title}" was updated.`,
+//         propertyId: prop._id,
+//       });
+
+//     res.json({ success: true, property: prop });
+//   } catch (err) {
+//     console.error("updateProperty error:", err);
+//     res
+//       .status(500)
+//       .json({ success: false, message: "Server error", error: err.message });
+//   }
+// };
 
 /**
  * @desc Delete property
