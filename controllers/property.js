@@ -321,7 +321,7 @@ const updateProperty = async (req, res) => {
         .json({ success: false, message: "Not authorized" });
     }
 
-    // Destructure all possible fields
+    // Destructure all possible fields (Added listingType here)
     const {
       title,
       description,
@@ -329,7 +329,7 @@ const updateProperty = async (req, res) => {
       address,
       propertyType,
       landType,
-      listingType,
+      listingType, // <-- Added this
       bedroom,
       bathroom,
       kitchen,
@@ -344,6 +344,7 @@ const updateProperty = async (req, res) => {
     if (price) prop.price = price;
     if (address) prop.address = address;
     if (propertyType) prop.propertyType = propertyType;
+    if (listingType) prop.listingType = listingType; // <-- Added this check
 
     // Conditional fields
     if (prop.propertyType === "land") {
@@ -397,7 +398,9 @@ const updateProperty = async (req, res) => {
     res.json({ success: true, property: prop });
   } catch (err) {
     console.error("updateProperty error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
   }
 };
 
