@@ -13,7 +13,7 @@ exports.initializeTransaction = async (email, amount, reference) => {
           Authorization: `Bearer ${PAYSTACK_SECRET}`,
           "Content-Type": "application/json",
         },
-      }
+      },
     );
     return res.data;
   } catch (err) {
@@ -28,7 +28,7 @@ exports.verifyTransaction = async (reference) => {
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
         headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` },
-      }
+      },
     );
     return res.data;
   } catch (err) {
