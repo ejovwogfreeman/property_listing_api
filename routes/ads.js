@@ -5,8 +5,7 @@ const upload = multer(); // Handles multipart/form-data text fields
 
 const {
   createAd,
-  initializeAdPayment,
-  verifyAdPayment,
+  payForAd,
   getAds,
   getAd,
   updateAd,
@@ -20,17 +19,8 @@ router.post("/", protect, authorize("agent"), upload.none(), createAd);
 // Both admins and agents can view all ads
 router.get("/", protect, authorize("admin", "agent"), getAds);
 
-// Only agents can initialize payment for their ads
-router.post("/:id/pay", protect, authorize("agent"), initializeAdPayment);
-
-// Payment verification can be done by agents or admins
-router.post(
-  "/verify-payment",
-  protect,
-  authorize("admin", "agent"),
-  upload.none(),
-  verifyAdPayment,
-);
+// Only agents can pay for their ads
+router.post("/:id/pay", protect, authorize("agent"), payForAd);
 
 // Both admins and agents can view a single ad
 router.get("/:id", protect, authorize("admin", "agent"), getAd);

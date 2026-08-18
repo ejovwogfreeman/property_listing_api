@@ -1,11 +1,7 @@
 const Ad = require("../models/ads");
 const Property = require("../models/property");
+const User = require("../models/user");
 const Notification = require("../models/notification");
-const {
-  initializeTransaction,
-  verifyTransaction,
-} = require("../middlewares/paystack");
-const crypto = require("crypto");
 
 /**
  * @desc Create a new property ad (Agent only)
@@ -39,6 +35,20 @@ const createAd = async (req, res) => {
       });
     }
 
+    // Check if there is already an active or pending ad for this property
+    const existingAd = await Ad.findOne({
+      property,
+      status: { $in: ["pending", "active"] },
+    });
+
+    if (existingAd) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "An active or pending ad already exists for this property. You cannot create a new one until it completes or is removed.",
+      });
+    }
+
     // Calculate total adBudget automatically if not provided or to ensure accuracy
     const calculatedBudget = adBudget || dailyBudget * duration;
 
@@ -49,7 +59,7 @@ const createAd = async (req, res) => {
       dailyBudget,
       duration,
       adBudget: calculatedBudget,
-      status: "pending", // Starts as pending until admin reviews/confirms
+      status: "pending", // Strictly initialized as pending
       isPaid: false,
     });
 
@@ -60,13 +70,14 @@ const createAd = async (req, res) => {
     await Notification.create({
       user: userId,
       title: "Ad Created",
-      message: `Your ad campaign for "${prop.title}" has been created. Proceed to payment.`,
+      message: `Your ad campaign for "${prop.title}" has been created as pending. Proceed to pay from your balance.`,
       meta: { adId: newAd._id },
     });
 
     res.status(201).json({
       success: true,
-      message: "Ad created successfully. Proceed to payment.",
+      message:
+        "Ad created successfully as pending. Proceed to payment from your balance.",
       data: newAd,
     });
   } catch (err) {
@@ -78,14 +89,10 @@ const createAd = async (req, res) => {
 };
 
 /**
- * @desc Initialize Paystack payment for an existing ad
+ * @desc Pay for an ad using the user's wallet balance and activate it
  * @route POST /api/ads/:id/pay
  */
-/**
- * @desc Initialize Paystack payment for an existing ad
- * @route POST /api/ads/:id/pay
- */
-const initializeAdPayment = async (req, res) => {
+const payForAd = async (req, res) => {
   try {
     const ad = await Ad.findById(req.params.id);
     if (!ad) {
@@ -105,112 +112,55 @@ const initializeAdPayment = async (req, res) => {
         .json({ success: false, message: "Ad has already been paid for" });
     }
 
-    const email = req.user.email;
-
-    // Ensure amount is a clean integer representing kobo (e.g., 2500 * 100 = 250000)
-    const amount = Math.round(Number(ad.adBudget) * 100);
-
-    if (isNaN(amount) || amount <= 0) {
+    // Fetch user to check wallet balance
+    const user = await User.findById(req.user._id);
+    if (!user) {
       return res
-        .status(400)
-        .json({ success: false, message: "Invalid ad budget amount" });
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
-    const reference = `AD_${crypto.randomBytes(6).toString("hex")}_${Date.now()}`;
+    const currentBalance = user.balance || user.walletBalance || 0;
 
-    // Call your middleware function matching your parameter style: (email, amount, reference)
-    // Note: If you want to include metadata, you can either update your paystack middleware
-    // or pass it if your paystack implementation supports a 4th argument.
-    // Using your exact middleware parameters:
-    const paymentData = await initializeTransaction(email, amount, reference);
-
-    // Save reference temporarily on the ad model
-    ad.paymentReference = reference;
-    await ad.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Payment initialized successfully",
-      data: paymentData, // Returns Paystack auth_url and reference
-    });
-  } catch (err) {
-    console.error("initializeAdPayment error:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
-  }
-};
-
-/**
- * @desc Verify Paystack payment and mark as paid (Admin can then change status to active)
- * @route GET /api/ads/verify-payment
- */
-/**
- * @desc Verify Paystack payment and mark as paid
- * @route GET /api/ads/verify-payment
- */
-/**
- * @desc Verify Paystack payment and mark as paid
- * @route POST /api/ads/verify-payment
- */
-const verifyAdPayment = async (req, res) => {
-  try {
-    // Change req.query to req.body since it's a POST request
-    const { reference } = req.body;
-    if (!reference) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Payment reference is required" });
-    }
-
-    // Call your middleware function matching your exact format: verifyTransaction(reference)
-    const verification = await verifyTransaction(reference);
-
-    // Paystack verify response returns verification.status = true and verification.data.status = "success"
-    if (
-      !verification ||
-      !verification.status ||
-      verification.data?.status !== "success"
-    ) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Payment verification failed" });
-    }
-
-    // Find the ad using the paymentReference saved during initialization
-    const ad = await Ad.findOne({ paymentReference: reference });
-    if (!ad) {
-      return res.status(404).json({
+    if (currentBalance < ad.adBudget) {
+      return res.status(400).json({
         success: false,
-        message: "Ad not found for this transaction reference",
+        message: `Insufficient wallet balance. Required: ${ad.adBudget}, Available: ${currentBalance}`,
       });
     }
 
-    // Update ad payment status
+    // Deduct from wallet & save user
+    user.balance = currentBalance - ad.adBudget; // change to user.walletBalance if applicable
+    await user.save();
+
+    // Update ad payment details and automatically set status to active upon payment success
     ad.isPaid = true;
+    ad.spent = ad.adBudget;
+    ad.status = "active";
     await ad.save();
     await ad.populate("property");
 
-    // Notify user
+    // Send Notification
     await Notification.create({
       user: ad.user,
-      title: "Ad Payment Successful",
-      message: `Your payment was verified successfully. Awaiting admin activation.`,
+      title: "Ad Payment Successful & Activated",
+      message: `Successfully paid ${ad.adBudget} from your balance. Your ad is now active!`,
       meta: { adId: ad._id },
     });
 
     res.status(200).json({
       success: true,
-      message: "Payment verified successfully",
+      message: "Ad payment successful and campaign is now active",
       data: ad,
     });
   } catch (err) {
-    console.error("verifyAdPayment error:", err);
+    console.error("payForAd error:", err);
     res
       .status(500)
       .json({ success: false, message: "Server error", error: err.message });
   }
 };
+
 /**
  * @desc Get all ads (Admins see all, agents see their own)
  * @route GET /api/ads
@@ -275,16 +225,13 @@ const getAd = async (req, res) => {
 };
 
 /**
- * @desc Update an ad (Agents update details, Admin changes status after payment review)
- * @route PATCH /api/ads/:id
- */
-/**
- * @desc Update an ad
+ * @desc Update an ad (Agents update details, Admin changes status/pauseReason)
  * @route PATCH /api/ads/:id
  */
 const updateAd = async (req, res) => {
   try {
-    const { objective, dailyBudget, duration, adBudget, status } = req.body;
+    const { objective, dailyBudget, duration, adBudget, status, pauseReason } =
+      req.body;
 
     const ad = await Ad.findById(req.params.id);
     if (!ad) {
@@ -308,9 +255,10 @@ const updateAd = async (req, res) => {
       });
     }
 
-    // If the user is an admin, they can update the status
+    // If the user is an admin, they can update the status and pauseReason
     if (isAdmin) {
       if (status !== undefined) ad.status = status;
+      if (pauseReason !== undefined) ad.pauseReason = pauseReason;
     }
 
     // If the user is the owner (agent), they can update campaign details (if unpaid)
@@ -386,8 +334,7 @@ const deleteAd = async (req, res) => {
 
 module.exports = {
   createAd,
-  initializeAdPayment,
-  verifyAdPayment,
+  payForAd,
   getAds,
   getAd,
   updateAd,
