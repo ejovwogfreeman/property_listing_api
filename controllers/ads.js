@@ -247,22 +247,43 @@ const updateAd = async (req, res) => {
         .json({ success: false, message: "Not authorized" });
     }
 
-    // Strict Rule: If someone who is NOT an admin tries to change the status
-    if (status !== undefined && !isAdmin) {
-      return res.status(403).json({
+    // Validate status input if provided against allowed schema values
+    const allowedStatuses = ["pending", "active", "completed", "paused"];
+    if (status !== undefined && !allowedStatuses.includes(status)) {
+      return res.status(400).json({
         success: false,
-        message: "Only administrators are allowed to update ad status.",
+        message: "Invalid status value provided.",
       });
     }
 
-    // If the user is an admin, they can update the status and pauseReason
+    // If the user is an admin, they can update status arbitrarily and change pauseReason
     if (isAdmin) {
       if (status !== undefined) ad.status = status;
       if (pauseReason !== undefined) ad.pauseReason = pauseReason;
     }
 
-    // If the user is the owner (agent), they can update campaign details (if unpaid)
+    // If the user is the owner (agent)
     if (isOwner) {
+      // Handle agent status updates: strictly allowed only between "active" and "paused"
+      if (status !== undefined) {
+        const isValidToggle =
+          (ad.status === "active" && status === "paused") ||
+          (ad.status === "paused" && status === "active");
+
+        if (!isValidToggle) {
+          return res.status(403).json({
+            success: false,
+            message:
+              "Agents can only toggle status between 'active' and 'paused'.",
+          });
+        }
+        ad.status = status;
+
+        // If agent pauses it, they can optionally provide or clear a pauseReason, or you can manage it here
+        if (pauseReason !== undefined) ad.pauseReason = pauseReason;
+      }
+
+      // Campaign field modifications (allowed only if unpaid)
       if (ad.isPaid && (objective || dailyBudget || duration || adBudget)) {
         return res.status(400).json({
           success: false,

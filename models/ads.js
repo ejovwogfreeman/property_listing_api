@@ -14,7 +14,7 @@ const AdSchema = new mongoose.Schema(
     adBudget: { type: Number, required: true }, // total budget (can be calculated or passed)
     status: {
       type: String,
-      enum: ["pending", "active", "completed", "paused", "rejected"],
+      enum: ["pending", "active", "completed", "paused"],
       default: "pending",
     },
     isPaid: { type: Boolean, default: false },
