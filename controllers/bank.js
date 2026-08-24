@@ -3,11 +3,6 @@ const Bank = require("../models/bank");
 const User = require("../models/user");
 
 /**
- * @desc Resolve Account Name from Bank Number and Code (via Paystack)
- * @route POST /api/bank/resolve
- * @access Private (Agent only)
- */
-/**
  * @desc Resolve Account Name using only Account Number and Bank Name
  * @route POST /api/bank/resolve
  * @access Private (Agent only)
@@ -15,7 +10,7 @@ const User = require("../models/user");
 const resolveAccountDetails = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { accountNumber, bankName } = req.body; // Notice we only ask for bankName now
+    const { accountNumber, bankName } = req.body;
 
     if (!accountNumber || !bankName) {
       return res.status(400).json({
@@ -43,7 +38,6 @@ const resolveAccountDetails = async (req, res) => {
     const banks = bankListResponse.data.data;
 
     // 3. Find the bank code that matches the provided bank name
-    // (Using .toLowerCase() and .includes() to make the search flexible)
     const matchedBank = banks.find((bank) =>
       bank.name.toLowerCase().includes(bankName.trim().toLowerCase()),
     );
@@ -55,7 +49,7 @@ const resolveAccountDetails = async (req, res) => {
       });
     }
 
-    const bankCode = matchedBank.code; // We found the code!
+    const bankCode = matchedBank.code;
 
     // 4. Call Paystack Resolve Account API with the dynamically found code
     const resolveResponse = await axios.get(
@@ -77,15 +71,15 @@ const resolveAccountDetails = async (req, res) => {
 
     const { account_name, account_number } = resolveResponse.data.data;
 
-    // 5. Return the resolved name AND the code (so the frontend can save it easily later)
+    // 5. Return the resolved name and details
     return res.status(200).json({
       success: true,
       message: "Account resolved successfully",
       data: {
         accountName: account_name,
         accountNumber: account_number,
-        bankName: matchedBank.name, // Returns the official bank name from Paystack
-        bankCode: bankCode, // Returns the code so frontend can just pass it to your save route
+        bankName: matchedBank.name,
+        bankCode: bankCode,
       },
     });
   } catch (err) {
@@ -111,7 +105,6 @@ const saveBankDetails = async (req, res) => {
     const userId = req.user._id;
     const { bankName, bankCode, accountNumber, accountName } = req.body;
 
-    // Validate inputs
     if (!bankName || !bankCode || !accountNumber || !accountName) {
       return res.status(400).json({
         success: false,
@@ -120,7 +113,6 @@ const saveBankDetails = async (req, res) => {
       });
     }
 
-    // Verify user is an agent
     const user = await User.findById(userId);
     if (!user || user.role !== "agent") {
       return res.status(403).json({
@@ -130,17 +122,15 @@ const saveBankDetails = async (req, res) => {
       });
     }
 
-    // Check if bank details already exist for this agent
     const existingBank = await Bank.findOne({ user: userId });
     if (existingBank) {
       return res.status(400).json({
         success: false,
         message:
-          "Bank details already exist. Please use the update route instead.",
+          "Bank details already exist for this user. Please use the update route instead.",
       });
     }
 
-    // Create new bank record
     const bankDetails = await Bank.create({
       user: userId,
       bankName,
@@ -165,7 +155,7 @@ const saveBankDetails = async (req, res) => {
 };
 
 /**
- * @desc Get Agent Bank Details
+ * @desc Get Logged-in Agent's Bank Details
  * @route GET /api/bank
  * @access Private (Agent only)
  */
@@ -173,7 +163,6 @@ const getBankDetails = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Verify user is an agent
     const user = await User.findById(userId);
     if (!user || user.role !== "agent") {
       return res.status(403).json({
@@ -206,16 +195,130 @@ const getBankDetails = async (req, res) => {
 };
 
 /**
- * @desc Update Agent Bank Details
- * @route PUT /api/bank
- * @access Private (Agent only)
+ * @desc Get a Single Bank Detail Record by Bank Document ID
+ * @route GET /api/bank/:id
+ * @access Private (Admin or Owner Agent)
+ */
+const getSingleBankDetails = async (req, res) => {
+  try {
+    const bankId = req.params.id;
+
+    const bankDetails = await Bank.findById(bankId).populate(
+      "user",
+      "name email role",
+    );
+
+    if (!bankDetails) {
+      return res.status(404).json({
+        success: false,
+        message: "Bank record not found",
+      });
+    }
+
+    // Must be admin or the owner of this bank record
+    if (
+      req.user.role !== "admin" &&
+      bankDetails.user._id.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view this bank record",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: bankDetails,
+    });
+  } catch (err) {
+    console.error("getSingleBankDetails error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Get Bank Details of a Particular User/Agent by User ID
+ * @route GET /api/bank/user/:userId
+ * @access Private (Admin or Owner)
+ */
+const getAgentBankDetails = async (req, res) => {
+  try {
+    const targetUserId = req.params.userId;
+
+    if (req.user.role !== "admin" && req.user._id.toString() !== targetUserId) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to view these bank details",
+      });
+    }
+
+    const bankDetails = await Bank.findOne({ user: targetUserId }).populate(
+      "user",
+      "name email role",
+    );
+
+    if (!bankDetails) {
+      return res.status(404).json({
+        success: false,
+        message: "No bank details found for this user",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: bankDetails,
+    });
+  } catch (err) {
+    console.error("getAgentBankDetails error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Get All Bank Details in DB
+ * @route GET /api/bank/all
+ * @access Private (Admin only)
+ */
+const getAllBanks = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Admin only.",
+      });
+    }
+
+    const banks = await Bank.find()
+      .populate("user", "name email role")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: banks.length,
+      data: banks,
+    });
+  } catch (err) {
+    console.error("getAllBanks error:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Update Agent Bank Details using Bank Document ID
+ * @route PUT /api/bank/:id
+ * @access Private (Admin or Owner Agent)
  */
 const updateBankDetails = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const bankId = req.params.id;
     const { bankName, bankCode, accountNumber, accountName } = req.body;
 
-    // Validate inputs
     if (!bankName || !bankCode || !accountNumber || !accountName) {
       return res.status(400).json({
         success: false,
@@ -223,25 +326,25 @@ const updateBankDetails = async (req, res) => {
       });
     }
 
-    // Verify user is an agent
-    const user = await User.findById(userId);
-    if (!user || user.role !== "agent") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Only agents can update bank details.",
-      });
-    }
-
-    // Find existing bank details
-    const bank = await Bank.findOne({ user: userId });
+    const bank = await Bank.findById(bankId);
     if (!bank) {
       return res.status(404).json({
         success: false,
-        message: "No bank details found. Please create one first.",
+        message: "Bank record not found",
       });
     }
 
-    // Update fields
+    // Must be admin or the owner of this bank record
+    if (
+      req.user.role !== "admin" &&
+      bank.user.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to update this bank record",
+      });
+    }
+
     bank.bankName = bankName;
     bank.bankCode = bankCode;
     bank.accountNumber = accountNumber;
@@ -265,32 +368,34 @@ const updateBankDetails = async (req, res) => {
 };
 
 /**
- * @desc Delete Agent Bank Details
- * @route DELETE /api/bank
- * @access Private (Agent only)
+ * @desc Delete Agent Bank Details using Bank Document ID
+ * @route DELETE /api/bank/:id
+ * @access Private (Admin or Owner Agent)
  */
 const deleteBankDetails = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const bankId = req.params.id;
 
-    // Verify user is an agent
-    const user = await User.findById(userId);
-    if (!user || user.role !== "agent") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Only agents can delete bank details.",
-      });
-    }
-
-    // Find and delete the bank record tied to this user
-    const deletedBank = await Bank.findOneAndDelete({ user: userId });
-
-    if (!deletedBank) {
+    const bank = await Bank.findById(bankId);
+    if (!bank) {
       return res.status(404).json({
         success: false,
-        message: "No bank details found to delete",
+        message: "Bank record not found",
       });
     }
+
+    // Must be admin or the owner of this bank record
+    if (
+      req.user.role !== "admin" &&
+      bank.user.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to delete this bank record",
+      });
+    }
+
+    await Bank.findByIdAndDelete(bankId);
 
     return res.status(200).json({
       success: true,
@@ -310,6 +415,9 @@ module.exports = {
   resolveAccountDetails,
   saveBankDetails,
   getBankDetails,
+  getSingleBankDetails,
+  getAgentBankDetails,
+  getAllBanks,
   updateBankDetails,
   deleteBankDetails,
 };

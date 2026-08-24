@@ -1,27 +1,31 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+const upload = multer(); // Handles multipart/form-data text fields
 const {
   resolveAccountDetails,
   saveBankDetails,
   getBankDetails,
+  getSingleBankDetails,
+  getAgentBankDetails,
+  getAllBanks,
   updateBankDetails,
   deleteBankDetails,
 } = require("../controllers/bank");
-const { protect } = require("../middlewares/auth"); // Adjust path to your auth middleware
+const { protect } = require("../middlewares/auth");
 
-// 1. Resolve account name from Paystack before saving
-router.post("/resolve", protect, resolveAccountDetails);
+// Resolve account name from Paystack before saving
+router.post("/resolve", protect, upload.none(), resolveAccountDetails);
 
-// 2. Create agent bank details
-router.post("/", protect, saveBankDetails);
+// Admin/Listing routes (placed before /:id to prevent path conflicts)
+router.get("/all", protect, getAllBanks);
+router.get("/user/:userId", protect, getAgentBankDetails);
 
-// 3. Get saved agent bank details
-router.get("/", protect, getBankDetails);
-
-// 4. Update agent bank details
-router.put("/", protect, updateBankDetails);
-
-// 5. Delete agent bank details
-router.delete("/", protect, deleteBankDetails);
+// Bank CRUD routes
+router.post("/", protect, upload.none(), saveBankDetails); // Create
+router.get("/", protect, getBankDetails); // Get own bank details
+router.get("/:id", protect, getSingleBankDetails); // Get single bank by ID
+router.put("/:id", protect, upload.none(), updateBankDetails); // Update by ID
+router.delete("/:id", protect, deleteBankDetails); // Delete by ID
 
 module.exports = router;
