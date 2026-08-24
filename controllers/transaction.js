@@ -1,6 +1,10 @@
 const User = require("../models/user");
 const Notification = require("../models/notification");
 const Transaction = require("../models/transaction");
+const {
+  initializeTransaction,
+  verifyTransaction,
+} = require("../middlewares/paystack");
 const crypto = require("crypto");
 
 // ---------------------------
