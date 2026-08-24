@@ -7,19 +7,24 @@ const User = require("../models/user");
  * @route POST /api/bank/resolve
  * @access Private (Agent only)
  */
+/**
+ * @desc Resolve Account Name using only Account Number and Bank Name
+ * @route POST /api/bank/resolve
+ * @access Private (Agent only)
+ */
 const resolveAccountDetails = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { accountNumber, bankCode } = req.body;
+    const { accountNumber, bankName } = req.body; // Notice we only ask for bankName now
 
-    if (!accountNumber || !bankCode) {
+    if (!accountNumber || !bankName) {
       return res.status(400).json({
         success: false,
-        message: "Account number and bank code are required",
+        message: "Account number and bank name are required",
       });
     }
 
-    // Verify user is an agent
+    // 1. Verify user is an agent
     const user = await User.findById(userId);
     if (!user || user.role !== "agent") {
       return res.status(403).json({
@@ -28,32 +33,59 @@ const resolveAccountDetails = async (req, res) => {
       });
     }
 
-    // Call Paystack Resolve Account API
-    const response = await axios.get(
+    // 2. Fetch the list of all banks from Paystack
+    const bankListResponse = await axios.get("https://api.paystack.co/bank", {
+      headers: {
+        Authorization: `Bearer ${process.env.PAYSTACK_SECRET}`,
+      },
+    });
+
+    const banks = bankListResponse.data.data;
+
+    // 3. Find the bank code that matches the provided bank name
+    // (Using .toLowerCase() and .includes() to make the search flexible)
+    const matchedBank = banks.find((bank) =>
+      bank.name.toLowerCase().includes(bankName.trim().toLowerCase()),
+    );
+
+    if (!matchedBank) {
+      return res.status(404).json({
+        success: false,
+        message: `Could not find a bank code for '${bankName}'. Please check the spelling.`,
+      });
+    }
+
+    const bankCode = matchedBank.code; // We found the code!
+
+    // 4. Call Paystack Resolve Account API with the dynamically found code
+    const resolveResponse = await axios.get(
       `https://api.paystack.co/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
       {
         headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET}`,
         },
       },
     );
 
-    if (!response.data || !response.data.status) {
+    if (!resolveResponse.data || !resolveResponse.data.status) {
       return res.status(400).json({
         success: false,
         message:
-          "Could not resolve account details. Please check and try again.",
+          "Could not resolve account details. Please check the account number.",
       });
     }
 
-    const { account_name, account_number } = response.data.data;
+    const { account_name, account_number } = resolveResponse.data.data;
 
+    // 5. Return the resolved name AND the code (so the frontend can save it easily later)
     return res.status(200).json({
       success: true,
       message: "Account resolved successfully",
       data: {
         accountName: account_name,
         accountNumber: account_number,
+        bankName: matchedBank.name, // Returns the official bank name from Paystack
+        bankCode: bankCode, // Returns the code so frontend can just pass it to your save route
       },
     });
   } catch (err) {
