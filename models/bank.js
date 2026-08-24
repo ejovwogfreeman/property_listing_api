@@ -13,6 +13,11 @@ const bankSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    bankCode: {
+      type: String,
+      required: true,
+      trim: true, // Needed if you want to keep track or use it for automated transfers later
+    },
     accountNumber: {
       type: String,
       required: true,
@@ -20,7 +25,8 @@ const bankSchema = new mongoose.Schema(
     },
     accountName: {
       type: String,
-      trim: true, // Optional: if you want to store the verified account holder name
+      required: true,
+      trim: true, // Automatically populated/verified via Paystack
     },
   },
   { timestamps: true },

@@ -18,6 +18,7 @@ const transactionRoutes = require("./routes/transaction");
 const inspectionRoutes = require("./routes/inspection");
 const purchaseRoutes = require("./routes/purchase");
 const adsRoutes = require("./routes/ads");
+const bankRoutes = require("./routes/bank");
 // const notificationRoutes = require("./routes/notification");
 // const escrowRoutes = require("./routes/escrow");
 
@@ -63,6 +64,7 @@ app.use("/api/transaction", transactionRoutes);
 app.use("/api/inspection", inspectionRoutes);
 app.use("/api/purchase", purchaseRoutes);
 app.use("/api/ads", adsRoutes);
+app.use("/api/bank", bankRoutes);
 // app.use("/api/notification", notificationRoutes);
 // app.use("/api/escrow", escrowRoutes);
 
