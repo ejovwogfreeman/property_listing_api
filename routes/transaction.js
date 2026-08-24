@@ -34,11 +34,11 @@ router.post(
   "/change-transaction-status",
   protect,
   authorize("admin"),
-  getUserTransactions,
+  changeTransactionStatus,
 );
 
 // Get User Transactions
-router.get("/user-transactions", protect, changeTransactionStatus);
+router.get("/user-transactions", protect, getUserTransactions);
 
 // Get Agent Transactions
 router.get(
