@@ -96,16 +96,6 @@ const resolveAccountDetails = async (req, res) => {
 };
 
 /**
- * @desc Create Agent Bank Details
- * @route POST /api/bank
- * @access Private (Agent only)
- */
-/**
- * @desc Create Agent Bank Details (Checks for duplicate bank name + account number combination)
- * @route POST /api/bank
- * @access Private (Agent only)
- */
-/**
  * @desc Create Agent Bank Details (First bank automatically becomes default)
  * @route POST /api/bank
  * @access Private (Agent only)
