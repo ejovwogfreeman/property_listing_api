@@ -6,7 +6,7 @@ const bankSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true, // Ensures one active bank record per agent
+      // Removed unique: true to allow multiple banks per agent
     },
     bankName: {
       type: String,
@@ -16,7 +16,7 @@ const bankSchema = new mongoose.Schema(
     bankCode: {
       type: String,
       required: true,
-      trim: true, // Needed if you want to keep track or use it for automated transfers later
+      trim: true,
     },
     accountNumber: {
       type: String,
@@ -26,7 +26,11 @@ const bankSchema = new mongoose.Schema(
     accountName: {
       type: String,
       required: true,
-      trim: true, // Automatically populated/verified via Paystack
+      trim: true,
+    },
+    isDefault: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true },

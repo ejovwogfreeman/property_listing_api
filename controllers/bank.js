@@ -100,6 +100,16 @@ const resolveAccountDetails = async (req, res) => {
  * @route POST /api/bank
  * @access Private (Agent only)
  */
+/**
+ * @desc Create Agent Bank Details (Checks for duplicate bank name + account number combination)
+ * @route POST /api/bank
+ * @access Private (Agent only)
+ */
+/**
+ * @desc Create Agent Bank Details (First bank automatically becomes default)
+ * @route POST /api/bank
+ * @access Private (Agent only)
+ */
 const saveBankDetails = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -122,14 +132,24 @@ const saveBankDetails = async (req, res) => {
       });
     }
 
-    const existingBank = await Bank.findOne({ user: userId });
+    // Check if this exact account number already exists for this bank globally
+    const existingBank = await Bank.findOne({
+      bankName: bankName.trim(),
+      accountNumber: accountNumber.trim(),
+    });
+
     if (existingBank) {
       return res.status(400).json({
         success: false,
-        message:
-          "Bank details already exist for this user. Please use the update route instead.",
+        message: "This bank account has already been registered in the system.",
       });
     }
+
+    // Check if this agent already has any other banks
+    const existingAgentBanksCount = await Bank.countDocuments({ user: userId });
+
+    // If it's their very first bank, make it default (true), otherwise false
+    const isDefault = existingAgentBanksCount === 0;
 
     const bankDetails = await Bank.create({
       user: userId,
@@ -137,6 +157,7 @@ const saveBankDetails = async (req, res) => {
       bankCode,
       accountNumber,
       accountName,
+      isDefault,
     });
 
     return res.status(201).json({
@@ -146,6 +167,58 @@ const saveBankDetails = async (req, res) => {
     });
   } catch (err) {
     console.error("saveBankDetails error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * @desc Set a specific bank account as default (turns off others for that agent)
+ * @route PATCH /api/bank/:id/default
+ * @access Private (Agent owner or Admin)
+ */
+const setDefaultBank = async (req, res) => {
+  try {
+    const bankId = req.params.id;
+    const userId = req.user._id;
+
+    // Find the bank target
+    const targetBank = await Bank.findById(bankId);
+    if (!targetBank) {
+      return res.status(404).json({
+        success: false,
+        message: "Bank record not found",
+      });
+    }
+
+    // Ensure authorization (must be admin or the owner of the bank account)
+    if (
+      req.user.role !== "admin" &&
+      targetBank.user.toString() !== userId.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to modify this bank record",
+      });
+    }
+
+    // 1. Set all banks belonging to this agent to isDefault: false
+    await Bank.updateMany({ user: targetBank.user }, { isDefault: false });
+
+    // 2. Set the selected bank to isDefault: true
+    targetBank.isDefault = true;
+    await targetBank.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Default bank updated successfully",
+      data: targetBank,
+    });
+  } catch (err) {
+    console.error("setDefaultBank error:", err);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -414,6 +487,7 @@ const deleteBankDetails = async (req, res) => {
 module.exports = {
   resolveAccountDetails,
   saveBankDetails,
+  setDefaultBank,
   getBankDetails,
   getSingleBankDetails,
   getAgentBankDetails,

@@ -5,6 +5,7 @@ const upload = multer(); // Handles multipart/form-data text fields
 const {
   resolveAccountDetails,
   saveBankDetails,
+  setDefaultBank,
   getBankDetails,
   getSingleBankDetails,
   getAgentBankDetails,
@@ -23,6 +24,7 @@ router.get("/user/:userId", protect, getAgentBankDetails);
 
 // Bank CRUD routes
 router.post("/", protect, upload.none(), saveBankDetails); // Create
+router.put("/:id/default", protect, upload.none(), setDefaultBank);
 router.get("/", protect, getBankDetails); // Get own bank details
 router.get("/:id", protect, getSingleBankDetails); // Get single bank by ID
 router.put("/:id", protect, upload.none(), updateBankDetails); // Update by ID
