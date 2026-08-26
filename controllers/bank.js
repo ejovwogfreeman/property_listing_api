@@ -439,7 +439,6 @@ module.exports = {
   resolveAccountDetails,
   saveBankDetails,
   setDefaultBank,
-  getBankDetails,
   getSingleBankDetails,
   getAgentBankDetails,
   getAllBanks,
