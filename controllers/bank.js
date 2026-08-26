@@ -218,46 +218,6 @@ const setDefaultBank = async (req, res) => {
 };
 
 /**
- * @desc Get Logged-in Agent's Bank Details
- * @route GET /api/bank
- * @access Private (Agent only)
- */
-const getBankDetails = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    const user = await User.findById(userId);
-    if (!user || user.role !== "agent") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Only agents can view bank details.",
-      });
-    }
-
-    const bankDetails = await Bank.findOne({ user: userId });
-
-    if (!bankDetails) {
-      return res.status(404).json({
-        success: false,
-        message: "No bank details found for this agent",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: bankDetails,
-    });
-  } catch (err) {
-    console.error("getBankDetails error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: err.message,
-    });
-  }
-};
-
-/**
  * @desc Get a Single Bank Detail Record by Bank Document ID
  * @route GET /api/bank/:id
  * @access Private (Admin or Owner Agent)
@@ -302,9 +262,9 @@ const getSingleBankDetails = async (req, res) => {
 };
 
 /**
- * @desc Get Bank Details of a Particular User/Agent by User ID
+ * @desc Get all bank details of a particular user/agent
  * @route GET /api/bank/user/:userId
- * @access Private (Admin or Owner)
+ * @access Private (Admin or the user themselves)
  */
 const getAgentBankDetails = async (req, res) => {
   try {
@@ -317,12 +277,13 @@ const getAgentBankDetails = async (req, res) => {
       });
     }
 
-    const bankDetails = await Bank.findOne({ user: targetUserId }).populate(
+    // Changed from findOne to find to retrieve all banks for this user
+    const bankDetails = await Bank.find({ user: targetUserId }).populate(
       "user",
       "name email role",
     );
 
-    if (!bankDetails) {
+    if (!bankDetails || bankDetails.length === 0) {
       return res.status(404).json({
         success: false,
         message: "No bank details found for this user",
@@ -331,6 +292,7 @@ const getAgentBankDetails = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      count: bankDetails.length,
       data: bankDetails,
     });
   } catch (err) {
@@ -340,7 +302,6 @@ const getAgentBankDetails = async (req, res) => {
       .json({ success: false, message: "Server error", error: err.message });
   }
 };
-
 /**
  * @desc Get All Bank Details in DB
  * @route GET /api/bank/all
