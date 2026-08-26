@@ -3,11 +3,16 @@ const axios = require("axios");
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET; // add your secret key in .env
 
 // Initialize transaction
-exports.initializeTransaction = async (email, amount, reference) => {
+exports.initializeTransaction = async (
+  email,
+  amount,
+  reference,
+  callback_url,
+) => {
   try {
     const res = await axios.post(
       "https://api.paystack.co/transaction/initialize",
-      { email, amount, reference },
+      { email, amount, reference, callback_url },
       {
         headers: {
           Authorization: `Bearer ${PAYSTACK_SECRET}`,
