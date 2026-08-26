@@ -12,7 +12,7 @@ const crypto = require("crypto");
 // ---------------------------
 const walletFunding = async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { amount, callback_url } = req.body;
     const userId = req.user._id;
 
     if (!amount || amount <= 0) {
@@ -55,6 +55,7 @@ const walletFunding = async (req, res) => {
       req.user.email,
       amount * 100,
       reference,
+      callback_url,
     );
 
     return res.json({
@@ -62,6 +63,7 @@ const walletFunding = async (req, res) => {
       authorizationUrl: init.data.authorization_url,
       reference,
       transactionId: transaction._id,
+      callback_url,
     });
   } catch (err) {
     console.error("walletFunding error:", err);
