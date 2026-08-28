@@ -265,6 +265,10 @@ const changeTransactionStatus = async (req, res) => {
         user.balance -= transaction.amount;
       }
 
+      if (transaction.type === "withdrawal") {
+        user.balance -= transaction.amount;
+      }
+
       await user.save();
     }
 
@@ -378,6 +382,91 @@ const getAllTransactions = async (req, res) => {
   }
 };
 
+// ---------------------------
+// Request Agent Withdrawal
+// ---------------------------
+const requestWithdrawal = async (req, res) => {
+  try {
+    const { amount, bankId } = req.body;
+    const userId = req.user._id;
+
+    if (!amount || amount <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid withdrawal amount" });
+    }
+
+    if (!bankId) {
+      return res.status(400).json({
+        success: false,
+        message: "Destination bank account is required",
+      });
+    }
+
+    // 👤 Verify user is an agent
+    const user = await User.findById(userId);
+    if (!user || user.role !== "agent") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only agents can request withdrawals.",
+      });
+    }
+
+    // 💰 Check if agent has enough balance
+    if (user.balance < amount) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Insufficient wallet balance" });
+    }
+
+    // 🔑 Generate unique reference
+    const reference = crypto.randomBytes(16).toString("hex");
+
+    // 🧾 Create pending withdrawal transaction
+    const transaction = await Transaction.create({
+      from: userId,
+      to: userId,
+      amount,
+      type: "withdrawal",
+      status: "pending",
+      reference,
+      meta: { bankId },
+    });
+
+    // 💸 Deduct from agent wallet immediately
+    user.balance -= amount;
+    await user.save();
+
+    // 🔔 Notify user
+    await Notification.create({
+      user: userId,
+      title: "Withdrawal Requested",
+      message: `Your withdrawal request of ₦${amount} has been submitted and is pending review.`,
+      meta: { transactionId: transaction._id },
+    });
+
+    // 🔌 Socket event
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "withdrawal_requested",
+        title: "New Withdrawal Request",
+        message: `An agent requested a withdrawal of ₦${amount}.`,
+        transactionId: transaction._id,
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Withdrawal request submitted successfully",
+      balance: user.balance,
+      transaction,
+    });
+  } catch (err) {
+    console.error("requestWithdrawal error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   walletFunding,
   verifyWalletFunding,
@@ -386,4 +475,5 @@ module.exports = {
   getUserTransactions,
   getAgentTransactions,
   getAllTransactions,
+  requestWithdrawal,
 };

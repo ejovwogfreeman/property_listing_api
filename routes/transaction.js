@@ -10,6 +10,7 @@ const {
   getUserTransactions,
   getAgentTransactions,
   getAllTransactions,
+  requestWithdrawal,
 } = require("../controllers/transaction");
 const { protect, authorize } = require("../middlewares/auth");
 
@@ -59,5 +60,8 @@ router.get(
   authorize("admin"),
   getAllTransactions,
 );
+
+// Get All Transactions
+router.get("/withdraw", protect, authorize("agent"), requestWithdrawal);
 
 module.exports = router;

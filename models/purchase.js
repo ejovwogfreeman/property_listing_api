@@ -22,7 +22,7 @@ const PurchaseSchema = new Schema(
       default: "pending",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Purchase", PurchaseSchema);
