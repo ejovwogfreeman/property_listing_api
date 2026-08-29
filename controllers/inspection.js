@@ -68,51 +68,51 @@ requestInspection = async (req, res) => {
 // ---------------------------
 // 2️⃣ Verify Inspection Code
 // ---------------------------
-verifyInspectionCode = async (req, res) => {
-  try {
-    const { inspectionId, code } = req.body;
-    const userId = req.user._id;
+// verifyInspectionCode = async (req, res) => {
+//   try {
+//     const { inspectionId, code } = req.body;
+//     const userId = req.user._id;
 
-    const inspection = await Inspection.findById(inspectionId);
-    if (!inspection)
-      return res.status(404).json({ message: "Inspection not found" });
-    if (inspection.user.toString() !== userId.toString())
-      return res.status(403).json({ message: "Unauthorized" });
-    if (inspection.status === "verified")
-      return res.status(400).json({ message: "Inspection already verified" });
-    if (inspection.code !== code)
-      return res.status(400).json({ message: "Incorrect code" });
+//     const inspection = await Inspection.findById(inspectionId);
+//     if (!inspection)
+//       return res.status(404).json({ message: "Inspection not found" });
+//     if (inspection.user.toString() !== userId.toString())
+//       return res.status(403).json({ message: "Unauthorized" });
+//     if (inspection.status === "verified")
+//       return res.status(400).json({ message: "Inspection already verified" });
+//     if (inspection.code !== code)
+//       return res.status(400).json({ message: "Incorrect code" });
 
-    inspection.status = "verified";
-    await inspection.save();
+//     inspection.status = "verified";
+//     await inspection.save();
 
-    // Notification to user
-    await Notification.create({
-      user: userId,
-      title: "Inspection Verified",
-      message: `Inspection code verified for property.`,
-      meta: { inspectionId },
-    });
+//     // Notification to user
+//     await Notification.create({
+//       user: userId,
+//       title: "Inspection Verified",
+//       message: `Inspection code verified for property.`,
+//       meta: { inspectionId },
+//     });
 
-    // Socket.io event
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "inspection_verified",
-        title: "Inspection Verified",
-        message: `Inspection code verified`,
-        inspectionId,
-      });
-    }
+//     // Socket.io event
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "inspection_verified",
+//         title: "Inspection Verified",
+//         message: `Inspection code verified`,
+//         inspectionId,
+//       });
+//     }
 
-    res.json({
-      success: true,
-      message: "Code verified. You can now pay the inspection fee.",
-    });
-  } catch (err) {
-    console.error("verifyInspectionCode error:", err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
+//     res.json({
+//       success: true,
+//       message: "Code verified. You can now pay the inspection fee.",
+//     });
+//   } catch (err) {
+//     console.error("verifyInspectionCode error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
 
 // ---------------------------
 // 3️⃣ Initialize Inspection Payment (Paystack)

@@ -6,7 +6,6 @@ const bankSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      // Removed unique: true to allow multiple banks per agent
     },
     bankName: {
       type: String,
