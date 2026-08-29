@@ -9,8 +9,14 @@ const InspectionSchema = new Schema(
     code: { type: String, required: true },
     status: {
       type: String,
-      enum: ["pending", "verified", "expired"],
-      default: "pending",
+      enum: [
+        "none",
+        "inspection_requested",
+        "inspection_scheduled",
+        "inispection_confirmed",
+        "inspection_completed",
+      ],
+      default: "none",
     },
     fee: { type: Number, required: true },
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin
@@ -18,7 +24,7 @@ const InspectionSchema = new Schema(
     feeReleased: { type: Boolean, default: false }, // add this
     scheduledDate: { type: Date, default: Date.now },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Inspection", InspectionSchema);

@@ -18,8 +18,16 @@ const PurchaseSchema = new Schema(
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin holding payment
     status: {
       type: String,
-      enum: ["pending", "paid", "completed", "cancelled"],
-      default: "pending",
+      enum: [
+        "none",
+        "property_payment_made",
+        "handover_requested",
+        "handover_scheduled",
+        "handover_confirmed",
+        "handover_completed",
+        "funds_released",
+      ],
+      default: "none",
     },
   },
   { timestamps: true },
