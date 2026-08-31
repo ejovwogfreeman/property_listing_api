@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const {
   requestInspection,
-  verifyInspectionCode,
+  // verifyInspectionCode,
   initializeInspectionPayment,
   verifyInspectionPayment,
   getInspectionDetails,
@@ -24,7 +24,7 @@ router.post("/request", protect, requestInspection);
 // POST /api/inspections/verify-code
 // Body: { inspectionId, code }
 // ---------------------------
-router.post("/verify-code", protect, verifyInspectionCode);
+// router.post("/verify-code", protect, verifyInspectionCode);
 
 // ---------------------------
 // 3️⃣ Initialize Inspection Payment

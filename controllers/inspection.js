@@ -403,7 +403,7 @@ getAllInspections = async (req, res) => {
 
 module.exports = {
   requestInspection,
-  verifyInspectionCode,
+  // verifyInspectionCode,
   initializeInspectionPayment,
   verifyInspectionPayment,
   getInspectionDetails,
