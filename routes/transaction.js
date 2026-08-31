@@ -65,4 +65,3 @@ router.get(
 router.post("/withdraw", protect, authorize("agent"), requestWithdrawal);
 
 module.exports = router;
-s;
