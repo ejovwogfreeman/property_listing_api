@@ -32,7 +32,7 @@ const TransactionSchema = new Schema(
     // 🧾 Only two allowed types
     type: {
       type: String,
-      enum: ["wallet_funding", "agent_payment"],
+      enum: ["wallet_funding", "agent_payment", "withdrawal"],
       required: true,
     },
 
