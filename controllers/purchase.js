@@ -302,7 +302,7 @@ getPurchaseDetails = async (req, res) => {
 // ---------------------------
 getUserPurchases = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.params.id;
 
     const purchases = await Purchase.find({ buyer: userId })
       .populate("property", "title price address")
@@ -321,7 +321,7 @@ getUserPurchases = async (req, res) => {
 // Get all purchases of properties managed by the logged-in agent
 getAgentPurchases = async (req, res) => {
   try {
-    const agentId = req.user._id;
+    const agentId = req.params.id;
 
     // Fetch properties where the logged-in user is the agent
     const properties = await Property.find(

@@ -33,10 +33,15 @@ router.post(
 router.get("/:purchaseId", protect, getPurchaseDetails);
 
 // Get All Purchases
-router.get("/user-purchases", protect, getUserPurchases);
+router.get("/user-purchases/:id", protect, getUserPurchases);
 
 // Get All Purchases
-router.get("/agent-purchases", protect, authorize("agent"), getAgentPurchases);
+router.get(
+  "/agent-purchases/:id",
+  protect,
+  authorize("agent"),
+  getAgentPurchases,
+);
 
 // Get All Purchases
 router.get("/all-purchases", protect, authorize("admin"), getAllPurchases);
