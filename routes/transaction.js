@@ -62,6 +62,12 @@ router.get(
 );
 
 // Get All Transactions
-router.post("/withdraw", protect, authorize("agent"), requestWithdrawal);
+router.post(
+  "/withdraw",
+  protect,
+  authorize("agent"),
+  upload.none(),
+  requestWithdrawal,
+);
 
 module.exports = router;
