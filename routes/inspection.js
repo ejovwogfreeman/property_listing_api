@@ -1,10 +1,13 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+const upload = multer(); // Handles multipart/form-data text fields
 const {
   requestInspection,
   // verifyInspectionCode,
   initializeInspectionPayment,
-  verifyInspectionPayment,
+  // verifyInspectionPayment,
+  changeInspectionStatus,
   getInspectionDetails,
   getUserInspections,
   getAgentInspections,
@@ -17,7 +20,7 @@ const { protect, authorize } = require("../middlewares/auth");
 // POST /api/inspections/request
 // Body: { propertyId }
 // ---------------------------
-router.post("/request", protect, requestInspection);
+router.post("/request", protect, upload.none(), requestInspection);
 
 // ---------------------------
 // 2️⃣ Verify Inspection Code
@@ -31,18 +34,31 @@ router.post("/request", protect, requestInspection);
 // POST /api/inspections/init-payment
 // Body: { inspectionId }
 // ---------------------------
-router.post("/initialize-payment", protect, initializeInspectionPayment);
+router.post(
+  "/initialize-payment",
+  protect,
+  upload.none(),
+  initializeInspectionPayment,
+);
 
 // ---------------------------
 // 4️⃣ Verify Inspection Payment
 // POST /api/inspections/verify-payment
 // Body: { inspectionId, reference }
 // ---------------------------
-router.post(
-  "/verify-payment",
+// router.post(
+//   "/verify-payment",
+//   protect,
+//   authorize("admin"),
+//   verifyInspectionPayment,
+// );
+// ---------------------------
+router.patch(
+  "status/:inspectionId",
   protect,
   authorize("admin"),
-  verifyInspectionPayment,
+  upload.none(),
+  changeInspectionStatus,
 );
 
 // ---------------------------

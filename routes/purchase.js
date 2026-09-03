@@ -1,9 +1,12 @@
 const express = require("express");
 const router = express.Router();
+const multer = require("multer");
+const upload = multer(); // Handles multipart/form-data text fields
 const {
   requestPurchase,
   initializePurchasePayment,
-  verifyPurchasePayment,
+  // verifyPurchasePayment,
+  changePurchaseStatus,
   getPurchaseDetails,
   getUserPurchases,
   getAgentPurchases,
@@ -22,11 +25,18 @@ router.post("/request", protect, requestPurchase);
 router.post("/initialize-payment", protect, initializePurchasePayment);
 
 // 3️⃣ Verify Purchase Payment (Paystack)
-router.post(
-  "/verify-payment",
+// router.post(
+//   "/verify-payment",
+//   protect,
+//   authorize("admin"),
+//   verifyPurchasePayment,
+// );
+router.patch(
+  "status/:purchaseId",
   protect,
   authorize("admin"),
-  verifyPurchasePayment,
+  upload.none(),
+  changePurchaseStatus,
 );
 
 // 4️⃣ Get Purchase Details
