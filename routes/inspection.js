@@ -4,9 +4,11 @@ const multer = require("multer");
 const upload = multer(); // Handles multipart/form-data text fields
 const {
   requestInspection,
-  // verifyInspectionCode,
   initializeInspectionPayment,
   verifyInspectionPayment,
+  scheduleInspection,
+  confirmInspection,
+  completeInspection,
   changeInspectionStatus,
   getInspectionDetails,
   getUserInspections,
@@ -23,16 +25,9 @@ const { protect, authorize } = require("../middlewares/auth");
 router.post("/request", protect, upload.none(), requestInspection);
 
 // ---------------------------
-// 2️⃣ Verify Inspection Code
-// POST /api/inspections/verify-code
-// Body: { inspectionId, code }
-// ---------------------------
-// router.post("/verify-code", protect, verifyInspectionCode);
-
-// ---------------------------
-// 3️⃣ Initialize Inspection Payment
-// POST /api/inspections/init-payment
-// Body: { inspectionId }
+// 2️⃣ Initialize Inspection Payment
+// POST /api/inspections/initialize-payment
+// Body: { inspectionId, callback_url }
 // ---------------------------
 router.post(
   "/initialize-payment",
@@ -42,7 +37,7 @@ router.post(
 );
 
 // ---------------------------
-// 4️⃣ Verify Inspection Payment
+// 3️⃣ Verify Inspection Payment
 // POST /api/inspections/verify-payment
 // Body: { inspectionId, reference }
 // ---------------------------
@@ -50,11 +45,46 @@ router.post(
   "/verify-payment",
   protect,
   authorize("admin"),
+  upload.none(),
   verifyInspectionPayment,
 );
+
+// ---------------------------
+// 4️⃣ Schedule Inspection (User / Buyer)
+// PATCH /api/inspections/schedule
+// Body: { inspectionId, scheduledDate }
+// ---------------------------
+router.patch("/schedule", protect, upload.none(), scheduleInspection);
+
+// ---------------------------
+// 5️⃣ Confirm Inspection (Agent / Property Owner)
+// PATCH /api/inspections/:inspectionId/confirm
 // ---------------------------
 router.patch(
-  "status/:inspectionId",
+  "/:inspectionId/confirm",
+  protect,
+  upload.none(),
+  confirmInspection,
+);
+
+// ---------------------------
+// 6️⃣ Complete Inspection (User / Buyer)
+// PATCH /api/inspections/:inspectionId/complete
+// ---------------------------
+router.patch(
+  "/:inspectionId/complete",
+  protect,
+  upload.none(),
+  completeInspection,
+);
+
+// ---------------------------
+// 🔄 Change Inspection Status (Admin Fallback)
+// PATCH /api/inspections/status/:inspectionId
+// Body: { status }
+// ---------------------------
+router.patch(
+  "/status/:inspectionId",
   protect,
   authorize("admin"),
   upload.none(),
@@ -62,13 +92,14 @@ router.patch(
 );
 
 // ---------------------------
-// Get All Inspections of loggedn in user
-// GET /api/inspections
+// Get All Inspections of logged-in user
+// GET /api/inspections/user-inspections
 // ---------------------------
 router.get("/user-inspections", protect, getUserInspections);
 
 // ---------------------------
-// Get All Inspections of loggedn in agent
+// Get All Inspections of logged-in agent
+// GET /api/inspections/agent-inspections
 // ---------------------------
 router.get(
   "/agent-inspections",
@@ -78,12 +109,13 @@ router.get(
 );
 
 // ---------------------------
-// Get All Inspections of loggedn in agent
+// Get All Inspections System-wide (Admin)
+// GET /api/inspections/all-inspections
 // ---------------------------
 router.get("/all-inspections", protect, authorize("admin"), getAllInspections);
 
 // ---------------------------
-// 5️⃣ Get Inspection Details
+// Get Single Inspection Details
 // GET /api/inspections/:inspectionId
 // ---------------------------
 router.get("/:inspectionId", protect, getInspectionDetails);

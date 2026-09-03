@@ -11,10 +11,13 @@ const InspectionSchema = new Schema(
       type: String,
       enum: [
         "none",
-        "inspection_requested",
-        "inspection_scheduled",
-        "inspection_confirmed",
-        "inspection_completed",
+        "inspection_requested", // 1. User submits the request
+        "inspection_initialized", // 2. User starts the payment process
+        "inspection_paid", // 3. Payment is verified & escrow created
+        "inspection_scheduled", // 4. Date/time for inspection is set
+        "inspection_confirmed", // 5. Owner/Admin confirms the appointment
+        "inspection_completed", // 6. Inspection has successfully taken place
+        "inspection_cancelled", // (Good to have just in case)
       ],
       default: "none",
     },
