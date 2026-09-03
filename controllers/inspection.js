@@ -13,7 +13,7 @@ const crypto = require("crypto");
 // ---------------------------
 // 1️⃣ Request Inspection
 // ---------------------------
-requestInspection = async (req, res) => {
+const requestInspection = async (req, res) => {
   try {
     const { propertyId } = req.body;
     const userId = req.user._id;
@@ -26,13 +26,14 @@ requestInspection = async (req, res) => {
     // Generate 6-digit code
     const code = generateCode();
 
-    // Create inspection record
+    // Create inspection record with status: "inspection_requested"
     const inspection = await Inspection.create({
       property: property._id,
-      owner: property.owner, // store property owner
+      owner: property.owner,
       user: userId,
       code,
       fee: property.inspectionFee,
+      status: "inspection_requested",
     });
 
     // Notification to user
@@ -55,7 +56,8 @@ requestInspection = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Inspection code generated. Please verify it before paying.",
+      message:
+        "Inspection requested successfully. Proceed to payment/scheduling.",
       inspectionId: inspection._id,
       code, // remove in production
     });
@@ -66,58 +68,9 @@ requestInspection = async (req, res) => {
 };
 
 // ---------------------------
-// 2️⃣ Verify Inspection Code
-// ---------------------------
-// verifyInspectionCode = async (req, res) => {
-//   try {
-//     const { inspectionId, code } = req.body;
-//     const userId = req.user._id;
-
-//     const inspection = await Inspection.findById(inspectionId);
-//     if (!inspection)
-//       return res.status(404).json({ message: "Inspection not found" });
-//     if (inspection.user.toString() !== userId.toString())
-//       return res.status(403).json({ message: "Unauthorized" });
-//     if (inspection.status === "verified")
-//       return res.status(400).json({ message: "Inspection already verified" });
-//     if (inspection.code !== code)
-//       return res.status(400).json({ message: "Incorrect code" });
-
-//     inspection.status = "verified";
-//     await inspection.save();
-
-//     // Notification to user
-//     await Notification.create({
-//       user: userId,
-//       title: "Inspection Verified",
-//       message: `Inspection code verified for property.`,
-//       meta: { inspectionId },
-//     });
-
-//     // Socket.io event
-//     if (global.io) {
-//       global.io.emit("notification", {
-//         type: "inspection_verified",
-//         title: "Inspection Verified",
-//         message: `Inspection code verified`,
-//         inspectionId,
-//       });
-//     }
-
-//     res.json({
-//       success: true,
-//       message: "Code verified. You can now pay the inspection fee.",
-//     });
-//   } catch (err) {
-//     console.error("verifyInspectionCode error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
-
-// ---------------------------
 // 3️⃣ Initialize Inspection Payment (Paystack)
 // ---------------------------
-initializeInspectionPayment = async (req, res) => {
+const initializeInspectionPayment = async (req, res) => {
   try {
     const { inspectionId, callback_url } = req.body;
     const userId = req.user._id;
@@ -132,11 +85,6 @@ initializeInspectionPayment = async (req, res) => {
     if (inspection.user.toString() !== userId.toString())
       return res.status(403).json({ message: "Unauthorized" });
 
-    if (inspection.status !== "verified")
-      return res.status(400).json({
-        message: "Inspection must be verified first",
-      });
-
     if (inspection.feePaid)
       return res.status(400).json({
         message: "Inspection fee already paid",
@@ -145,51 +93,35 @@ initializeInspectionPayment = async (req, res) => {
     // Generate unique transaction reference
     const reference = crypto.randomBytes(16).toString("hex");
 
-    // 👉 CREATE ESCROW ENTRY
-    const escrow = await Escrow.create({
-      property: inspection.property?._id,
-      buyer: userId,
-      seller: inspection.owner?._id,
-      amount: inspection.fee,
-      status: "pending",
-      reference,
-      type: "inspection",
-    });
+    // Update status to "inspection_scheduled" upon starting payment
+    inspection.status = "inspection_scheduled";
+    await inspection.save();
 
-    // -----------------------------------------------------------
-    // 🔔 GLOBAL NOTIFICATIONS USING YOUR OWN FORMAT
-    // -----------------------------------------------------------
-
-    // Notify buyer
+    // 🔔 Notifications
     await Notification.create({
       user: inspection.user,
       title: "Inspection Payment Started",
-      message: `You initiated inspection payment. Your money will be held in escrow until verification.`,
-      meta: { inspectionId, escrowId: escrow._id },
+      message: `You initiated inspection payment. Escrow will be created upon successful payment.`,
+      meta: { inspectionId },
     });
 
-    // Notify property owner
     await Notification.create({
       user: inspection.owner,
       title: "Incoming Inspection Payment",
       message: `A buyer has initiated payment for inspection of your property "${inspection.property?.title}".`,
-      meta: { inspectionId, escrowId: escrow._id },
+      meta: { inspectionId },
     });
 
-    // SOCKET (global)
     if (global.io) {
       global.io.emit("notification", {
         type: "inspection_payment_started",
         title: "Inspection Payment Initiated",
-        message: `A buyer has started inspection payment (escrow created).`,
+        message: `A buyer has started inspection payment.`,
         inspectionId,
-        escrowId: escrow._id,
       });
     }
 
-    // -----------------------------------------------------------
     // Initialize Paystack transaction
-    // -----------------------------------------------------------
     const init = await initializeTransaction(
       req.user.email,
       inspection.fee * 100, // convert to kobo
@@ -202,7 +134,6 @@ initializeInspectionPayment = async (req, res) => {
       authorizationUrl: init.data.authorization_url,
       reference,
       inspectionId: inspection._id,
-      escrowId: escrow._id,
       callback_url,
     });
   } catch (err) {
@@ -214,7 +145,7 @@ initializeInspectionPayment = async (req, res) => {
 // ---------------------------
 // 4️⃣ Verify Inspection Payment (Paystack)
 // ---------------------------
-verifyInspectionPayment = async (req, res) => {
+const verifyInspectionPayment = async (req, res) => {
   try {
     const { reference, inspectionId } = req.body;
 
@@ -232,72 +163,68 @@ verifyInspectionPayment = async (req, res) => {
       return res.status(404).json({ message: "Inspection not found" });
     }
 
-    // Find related escrow (created during initialize)
-    const escrow = await Escrow.findOne({ reference });
+    // Prevent duplicate escrow creation if already verified
+    let escrow = await Escrow.findOne({ reference });
     if (!escrow) {
-      return res
-        .status(404)
-        .json({ message: "Escrow record not found for this transaction" });
+      // 👉 CREATE ESCROW ENTRY ONLY AFTER SUCCESSFUL PAYMENT VERIFICATION
+      escrow = await Escrow.create({
+        property: inspection.property?._id,
+        buyer: inspection.user,
+        seller: inspection.owner?._id,
+        amount: inspection.fee,
+        status: "pending", // Always pending for admin review/release later
+        reference,
+        type: "inspection",
+      });
     }
 
     // Find admin
     const adminUser = await User.findOne({ role: "admin" });
 
-    // Update Inspection fields
+    // Update Inspection fields & change status to "inspection_confirmed"
     inspection.feePaid = true;
-    inspection.escrowHeldBy = adminUser._id;
+    inspection.escrowHeldBy = adminUser?._id;
+    inspection.status = "inspection_confirmed";
     await inspection.save();
 
-    // Update Escrow fields
-    escrow.status = "approved";
-    escrow.approvedAt = new Date();
-    await escrow.save();
-
-    // -------------------------------------------------------------
-    // 🔔 NOTIFICATIONS
-    // -------------------------------------------------------------
-
-    // Notify buyer
+    // 🔔 Notifications
     await Notification.create({
       user: inspection.user,
       title: "Inspection Fee Paid",
-      message: `Your inspection fee has been paid successfully and is being held in escrow by admin.`,
+      message: `Your inspection fee has been paid successfully and is pending escrow review.`,
       meta: { inspectionId, escrowId: escrow._id },
     });
 
-    // Notify property owner
     await Notification.create({
       user: inspection.owner,
       title: "Inspection Fee Received",
-      message: `The inspection fee for your property "${inspection.property?.title}" has been paid and the funds are held in escrow.`,
+      message: `The inspection fee for your property "${inspection.property?.title}" has been paid and confirmed.`,
       meta: { inspectionId, escrowId: escrow._id },
     });
 
-    // Notify admin
-    await Notification.create({
-      user: adminUser._id,
-      title: "New Escrow Payment",
-      message: `A new inspection escrow payment has been approved.`,
-      meta: { inspectionId, escrowId: escrow._id },
-    });
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "New Escrow Created",
+        message: `A new inspection payment has been verified and an escrow is pending your review.`,
+        meta: { inspectionId, escrowId: escrow._id },
+      });
+    }
 
-    // -------------------------------------------------------------
-    // 🔌 SOCKET EVENTS
-    // -------------------------------------------------------------
     if (global.io) {
       global.io.emit("notification", {
         type: "inspection_fee_paid",
-        title: "Inspection Payment Approved",
-        message: `Inspection fee has been verified and escrow updated.`,
+        title: "Inspection Payment Confirmed",
+        message: `Inspection fee has been verified and escrow created.`,
         inspectionId,
         escrowId: escrow._id,
       });
     }
 
-    // SUCCESS RESPONSE
     res.json({
       success: true,
-      message: "Payment verified successfully",
+      message:
+        "Payment verified, inspection confirmed, and escrow created successfully",
       inspection,
       escrow,
     });
@@ -310,15 +237,15 @@ verifyInspectionPayment = async (req, res) => {
 // ---------------------------
 // 5️⃣ Get Inspection Details
 // ---------------------------
-getInspectionDetails = async (req, res) => {
+const getInspectionDetails = async (req, res) => {
   try {
     const { inspectionId } = req.params;
 
     const inspection = await Inspection.findById(inspectionId)
-      .populate("property", "title price address") // property info
-      .populate("owner", "name email") // property owner
-      .populate("user", "name email") // person requesting inspection
-      .populate("escrowHeldBy", "name email"); // admin holding escrow
+      .populate("property", "title price address")
+      .populate("owner", "name email")
+      .populate("user", "name email")
+      .populate("escrowHeldBy", "name email");
 
     if (!inspection)
       return res.status(404).json({ message: "Inspection not found" });
@@ -333,42 +260,40 @@ getInspectionDetails = async (req, res) => {
 // ---------------------------
 // Get All Inspections for Logged-in User
 // ---------------------------
-getUserInspections = async (req, res) => {
+const getUserInspections = async (req, res) => {
   try {
     const userId = req.user._id;
 
     const inspections = await Inspection.find({ user: userId })
       .populate("property", "title price address")
-      .populate("owner", "name email") // property owner
-      .populate("escrowHeldBy", "name email") // admin holding fee
+      .populate("owner", "name email")
+      .populate("escrowHeldBy", "name email")
       .sort({ createdAt: -1 });
 
     res.json({ success: true, inspections });
   } catch (err) {
-    console.error("getMyInspections error:", err);
+    console.error("getUserInspections error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
 // Get all inspections of properties managed by the logged-in agent
-getAgentInspections = async (req, res) => {
+const getAgentInspections = async (req, res) => {
   try {
     const agentId = req.user._id;
 
-    // Fetch properties where the logged-in user is the agent
     const properties = await Property.find(
       { agent: agentId },
       "_id title price address",
     );
     const propertyIds = properties.map((p) => p._id);
 
-    // Get inspections for these properties
     const inspections = await Inspection.find({
       property: { $in: propertyIds },
     })
       .populate("property", "title price address")
-      .populate("user", "name email") // requester
-      .populate("owner", "name email") // property owner
+      .populate("user", "name email")
+      .populate("owner", "name email")
       .populate("escrowHeldBy", "name email")
       .sort({ createdAt: -1 });
 
@@ -384,13 +309,13 @@ getAgentInspections = async (req, res) => {
 };
 
 // Get all inspections in the system
-getAllInspections = async (req, res) => {
+const getAllInspections = async (req, res) => {
   try {
     const inspections = await Inspection.find()
       .populate("property", "title price address")
-      .populate("user", "name email") // requester
-      .populate("owner", "name email") // property owner
-      .populate("escrowHeldBy", "name email") // admin
+      .populate("user", "name email")
+      .populate("owner", "name email")
+      .populate("escrowHeldBy", "name email")
       .sort({ createdAt: -1 });
 
     res.json({
@@ -405,7 +330,6 @@ getAllInspections = async (req, res) => {
 
 module.exports = {
   requestInspection,
-  // verifyInspectionCode,
   initializeInspectionPayment,
   verifyInspectionPayment,
   getInspectionDetails,
