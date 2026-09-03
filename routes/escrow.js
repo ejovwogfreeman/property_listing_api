@@ -19,6 +19,12 @@ router.get(
   authorize("agent"),
   getEscrowById,
 );
-router.patch("/status", protect, admin, upload.none(), changeEscrowStatus);
+router.patch(
+  "/status",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  changeEscrowStatus,
+);
 
 module.exports = router;
