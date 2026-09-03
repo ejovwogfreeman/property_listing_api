@@ -62,12 +62,6 @@ router.patch(
 );
 
 // ---------------------------
-// 5️⃣ Get Inspection Details
-// GET /api/inspections/:inspectionId
-// ---------------------------
-router.get("/:inspectionId", protect, getInspectionDetails);
-
-// ---------------------------
 // Get All Inspections of loggedn in user
 // GET /api/inspections
 // ---------------------------
@@ -87,5 +81,11 @@ router.get(
 // Get All Inspections of loggedn in agent
 // ---------------------------
 router.get("/all-inspections", protect, authorize("admin"), getAllInspections);
+
+// ---------------------------
+// 5️⃣ Get Inspection Details
+// GET /api/inspections/:inspectionId
+// ---------------------------
+router.get("/:inspectionId", protect, getInspectionDetails);
 
 module.exports = router;

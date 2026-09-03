@@ -43,6 +43,8 @@ router.patch(
   upload.none(),
   changePurchaseStatus,
 );
+// Get All Purchases
+router.get("/all-purchases", protect, authorize("admin"), getAllPurchases);
 
 // 4️⃣ Get Purchase Details
 router.get("/:purchaseId", protect, getPurchaseDetails);
@@ -57,8 +59,5 @@ router.get(
   authorize("agent"),
   getAgentPurchases,
 );
-
-// Get All Purchases
-router.get("/all-purchases", protect, authorize("admin"), getAllPurchases);
 
 module.exports = router;
