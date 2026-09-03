@@ -13,6 +13,60 @@ const crypto = require("crypto");
 // ---------------------------
 // 1️⃣ Request Inspection
 // ---------------------------
+// const requestInspection = async (req, res) => {
+//   try {
+//     const { propertyId } = req.body;
+//     const userId = req.user._id;
+
+//     // Fetch property
+//     const property = await Property.findById(propertyId);
+//     if (!property)
+//       return res.status(404).json({ message: "Property not found" });
+
+//     // Generate 6-digit code
+//     const code = generateCode();
+
+//     // Create inspection record with status: "inspection_requested"
+//     const inspection = await Inspection.create({
+//       property: property._id,
+//       owner: property.owner,
+//       user: userId,
+//       code,
+//       fee: property.inspectionFee,
+//       status: "inspection_requested",
+//     });
+
+//     // Notification to user
+//     await Notification.create({
+//       user: userId,
+//       title: "Inspection Requested",
+//       message: `Inspection requested for "${property.title}". Use code ${code} to verify.`,
+//       meta: { inspectionId: inspection._id },
+//     });
+
+//     // Emit socket.io event
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "inspection_requested",
+//         title: "Inspection Requested",
+//         message: `Inspection requested for "${property.title}"`,
+//         inspectionId: inspection._id,
+//       });
+//     }
+
+//     res.status(201).json({
+//       success: true,
+//       message:
+//         "Inspection requested successfully. Proceed to payment/scheduling.",
+//       inspectionId: inspection._id,
+//       code, // remove in production
+//     });
+//   } catch (err) {
+//     console.error("requestInspection error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 const requestInspection = async (req, res) => {
   try {
     const { propertyId } = req.body;
@@ -22,6 +76,21 @@ const requestInspection = async (req, res) => {
     const property = await Property.findById(propertyId);
     if (!property)
       return res.status(404).json({ message: "Property not found" });
+
+    // 🛑 Check for existing inspection regardless of status
+    const existingInspection = await Inspection.findOne({
+      property: propertyId,
+      user: userId,
+    });
+
+    if (existingInspection) {
+      return res.status(400).json({
+        success: false,
+        message: "An inspection request for this property already exists.",
+        inspectionId: existingInspection._id,
+        status: existingInspection.status,
+      });
+    }
 
     // Generate 6-digit code
     const code = generateCode();
