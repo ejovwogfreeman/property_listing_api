@@ -6,7 +6,7 @@ const {
   requestInspection,
   // verifyInspectionCode,
   initializeInspectionPayment,
-  // verifyInspectionPayment,
+  verifyInspectionPayment,
   changeInspectionStatus,
   getInspectionDetails,
   getUserInspections,

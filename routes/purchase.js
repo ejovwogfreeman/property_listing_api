@@ -5,7 +5,7 @@ const upload = multer(); // Handles multipart/form-data text fields
 const {
   requestPurchase,
   initializePurchasePayment,
-  // verifyPurchasePayment,
+  verifyPurchasePayment,
   changePurchaseStatus,
   getPurchaseDetails,
   getUserPurchases,
