@@ -214,94 +214,95 @@ const initializeInspectionPayment = async (req, res) => {
 // ---------------------------
 // 4️⃣ Verify Inspection Payment (Paystack)
 // ---------------------------
-// const verifyInspectionPayment = async (req, res) => {
-//   try {
-//     const { reference, inspectionId } = req.body;
+const verifyInspectionPayment = async (req, res) => {
+  try {
+    const { reference, inspectionId } = req.body;
 
-//     const verification = await verifyTransaction(reference);
-//     if (verification.data.status !== "success") {
-//       return res.status(400).json({ message: "Payment not successful" });s
-//     }
+    const verification = await verifyTransaction(reference);
+    if (verification.data.status !== "success") {
+      return res.status(400).json({ message: "Payment not successful" });
+      s;
+    }
 
-//     // Find inspection
-//     const inspection = await Inspection.findById(inspectionId)
-//       .populate("owner")
-//       .populate("property");
+    // Find inspection
+    const inspection = await Inspection.findById(inspectionId)
+      .populate("owner")
+      .populate("property");
 
-//     if (!inspection) {
-//       return res.status(404).json({ message: "Inspection not found" });
-//     }
+    if (!inspection) {
+      return res.status(404).json({ message: "Inspection not found" });
+    }
 
-//     // Prevent duplicate escrow creation if already verified
-//     let escrow = await Escrow.findOne({ reference });
-//     if (!escrow) {
-//       // 👉 CREATE ESCROW ENTRY ONLY AFTER SUCCESSFUL PAYMENT VERIFICATION
-//       escrow = await Escrow.create({
-//         property: inspection.property?._id,
-//         buyer: inspection.user,
-//         seller: inspection.owner?._id,
-//         amount: inspection.fee,
-//         status: "pending", // Always pending for admin review/release later
-//         reference,
-//         type: "inspection",
-//       });
-//     }
+    // Prevent duplicate escrow creation if already verified
+    let escrow = await Escrow.findOne({ reference });
+    if (!escrow) {
+      // 👉 CREATE ESCROW ENTRY ONLY AFTER SUCCESSFUL PAYMENT VERIFICATION
+      escrow = await Escrow.create({
+        property: inspection.property?._id,
+        buyer: inspection.user,
+        seller: inspection.owner?._id,
+        amount: inspection.fee,
+        status: "pending", // Always pending for admin review/release later
+        reference,
+        type: "inspection",
+      });
+    }
 
-//     // Find admin
-//     const adminUser = await User.findOne({ role: "admin" });
+    // Find admin
+    const adminUser = await User.findOne({ role: "admin" });
 
-//     // Update Inspection fields & change status to "inspection_confirmed"
-//     inspection.feePaid = true;
-//     inspection.escrowHeldBy = adminUser?._id;
-//     inspection.status = "inspection_confirmed";
-//     await inspection.save();
+    // Update Inspection fields & change status to "inspection_confirmed"
+    inspection.feePaid = true;
+    inspection.escrowHeldBy = adminUser?._id;
+    inspection.status = "inspection_confirmed";
+    await inspection.save();
 
-//     // 🔔 Notifications
-//     await Notification.create({
-//       user: inspection.user,
-//       title: "Inspection Fee Paid",
-//       message: `Your inspection fee has been paid successfully and is pending escrow review.`,
-//       meta: { inspectionId, escrowId: escrow._id },
-//     });
+    // 🔔 Notifications
+    await Notification.create({
+      user: inspection.user,
+      title: "Inspection Fee Paid",
+      message: `Your inspection fee has been paid successfully and is pending escrow review.`,
+      meta: { inspectionId, escrowId: escrow._id },
+    });
 
-//     await Notification.create({
-//       user: inspection.owner,
-//       title: "Inspection Fee Received",
-//       message: `The inspection fee for your property "${inspection.property?.title}" has been paid and confirmed.`,
-//       meta: { inspectionId, escrowId: escrow._id },
-//     });
+    await Notification.create({
+      user: inspection.owner,
+      title: "Inspection Fee Received",
+      message: `The inspection fee for your property "${inspection.property?.title}" has been paid and confirmed.`,
+      meta: { inspectionId, escrowId: escrow._id },
+    });
 
-//     if (adminUser) {
-//       await Notification.create({
-//         user: adminUser._id,
-//         title: "New Escrow Created",
-//         message: `A new inspection payment has been verified and an escrow is pending your review.`,
-//         meta: { inspectionId, escrowId: escrow._id },
-//       });
-//     }
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "New Escrow Created",
+        message: `A new inspection payment has been verified and an escrow is pending your review.`,
+        meta: { inspectionId, escrowId: escrow._id },
+      });
+    }
 
-//     if (global.io) {
-//       global.io.emit("notification", {
-//         type: "inspection_fee_paid",
-//         title: "Inspection Payment Confirmed",
-//         message: `Inspection fee has been verified and escrow created.`,
-//         inspectionId,
-//         escrowId: escrow._id,
-//       });
-//     }
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "inspection_fee_paid",
+        title: "Inspection Payment Confirmed",
+        message: `Inspection fee has been verified and escrow created.`,
+        inspectionId,
+        escrowId: escrow._id,
+      });
+    }
 
-//     res.json({
-//       success: true,
-//       message:
-//         "Payment verified, inspection confirmed, and escrow created successfully",
-//       inspection,
-//       escrow,
-//     });
-//   } catch (err) {
-//     console.error("verifyInspectionPayment error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
+    res.json({
+      success: true,
+      message:
+        "Payment verified, inspection confirmed, and escrow created successfully",
+      inspection,
+      escrow,
+    });
+  } catch (err) {
+    console.error("verifyInspectionPayment error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 // ---------------------------
 // 🔄 Change Inspection Status (Admin Only)
@@ -503,7 +504,7 @@ const getAllInspections = async (req, res) => {
 module.exports = {
   requestInspection,
   initializeInspectionPayment,
-  // verifyInspectionPayment,
+  verifyInspectionPayment,
   changeInspectionStatus,
   getInspectionDetails,
   getUserInspections,

@@ -46,12 +46,12 @@ router.post(
 // POST /api/inspections/verify-payment
 // Body: { inspectionId, reference }
 // ---------------------------
-// router.post(
-//   "/verify-payment",
-//   protect,
-//   authorize("admin"),
-//   verifyInspectionPayment,
-// );
+router.post(
+  "/verify-payment",
+  protect,
+  authorize("admin"),
+  verifyInspectionPayment,
+);
 // ---------------------------
 router.patch(
   "status/:inspectionId",

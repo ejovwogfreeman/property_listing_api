@@ -30,12 +30,13 @@ router.post(
 );
 
 // 3️⃣ Verify Purchase Payment (Paystack)
-// router.post(
-//   "/verify-payment",
-//   protect,
-//   authorize("admin"),
-//   verifyPurchasePayment,
-// );
+router.post(
+  "/verify-payment",
+  protect,
+  authorize("admin"),
+  verifyPurchasePayment,
+);
+
 router.patch(
   "status/:purchaseId",
   protect,

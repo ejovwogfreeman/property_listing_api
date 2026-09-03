@@ -167,104 +167,104 @@ const initializePurchasePayment = async (req, res) => {
 // ---------------------------
 // 3️⃣ Verify Purchase Payment (Paystack)
 // ---------------------------
-// const verifyPurchasePayment = async (req, res) => {
-//   try {
-//     const { reference, purchaseId } = req.body;
+const verifyPurchasePayment = async (req, res) => {
+  try {
+    const { reference, purchaseId } = req.body;
 
-//     // Verify Paystack transaction
-//     const verification = await verifyTransaction(reference);
-//     if (verification.data.status !== "success")
-//       return res.status(400).json({ message: "Payment not successful" });
+    // Verify Paystack transaction
+    const verification = await verifyTransaction(reference);
+    if (verification.data.status !== "success")
+      return res.status(400).json({ message: "Payment not successful" });
 
-//     // Find purchase
-//     const purchase = await Purchase.findById(purchaseId).populate("owner");
-//     if (!purchase)
-//       return res.status(404).json({ message: "Purchase not found" });
+    // Find purchase
+    const purchase = await Purchase.findById(purchaseId).populate("owner");
+    if (!purchase)
+      return res.status(404).json({ message: "Purchase not found" });
 
-//     // Get admin
-//     const adminUser = await User.findOne({ role: "admin" });
+    // Get admin
+    const adminUser = await User.findOne({ role: "admin" });
 
-//     // ------------------------------
-//     // CREATE ESCROW ONLY UPON SUCCESSFUL PAYMENT VERIFICATION
-//     // ------------------------------
-//     let escrow = await Escrow.findOne({ reference });
-//     if (!escrow) {
-//       escrow = await Escrow.create({
-//         reference: reference,
-//         property: purchase.property,
-//         buyer: purchase.buyer,
-//         seller: purchase.owner._id,
-//         amount: purchase.price,
-//         status: "pending", // Always pending for admin review/management later
-//         type: "purchase", // or "property_purchase" depending on your escrow schema enum
-//       });
-//     }
+    // ------------------------------
+    // CREATE ESCROW ONLY UPON SUCCESSFUL PAYMENT VERIFICATION
+    // ------------------------------
+    let escrow = await Escrow.findOne({ reference });
+    if (!escrow) {
+      escrow = await Escrow.create({
+        reference: reference,
+        property: purchase.property,
+        buyer: purchase.buyer,
+        seller: purchase.owner._id,
+        amount: purchase.price,
+        status: "pending", // Always pending for admin review/management later
+        type: "purchase", // or "property_purchase" depending on your escrow schema enum
+      });
+    }
 
-//     // ------------------------------
-//     // UPDATE PURCHASE (Using enum "property_payment_made")
-//     // ------------------------------
-//     purchase.feePaid = true;
-//     purchase.escrowHeldBy = adminUser ? adminUser._id : null;
-//     purchase.status = "property_payment_made"; // 👈 Matches your PurchaseSchema enum
-//     await purchase.save();
+    // ------------------------------
+    // UPDATE PURCHASE (Using enum "property_payment_made")
+    // ------------------------------
+    purchase.feePaid = true;
+    purchase.escrowHeldBy = adminUser ? adminUser._id : null;
+    purchase.status = "property_payment_made"; // 👈 Matches your PurchaseSchema enum
+    await purchase.save();
 
-//     // ------------------------------
-//     // NOTIFICATIONS
-//     // ------------------------------
+    // ------------------------------
+    // NOTIFICATIONS
+    // ------------------------------
 
-//     // Notify Buyer
-//     await Notification.create({
-//       user: purchase.buyer,
-//       title: "Purchase Payment Verified",
-//       message: `Your purchase payment is verified and escrow has been created pending admin review.`,
-//       meta: { purchaseId, escrowId: escrow._id },
-//     });
+    // Notify Buyer
+    await Notification.create({
+      user: purchase.buyer,
+      title: "Purchase Payment Verified",
+      message: `Your purchase payment is verified and escrow has been created pending admin review.`,
+      meta: { purchaseId, escrowId: escrow._id },
+    });
 
-//     // Notify Seller
-//     await Notification.create({
-//       user: purchase.owner._id,
-//       title: "Purchase Payment Held in Escrow",
-//       message: `Payment for your property is verified and pending review.`,
-//       meta: { purchaseId, escrowId: escrow._id },
-//     });
+    // Notify Seller
+    await Notification.create({
+      user: purchase.owner._id,
+      title: "Purchase Payment Held in Escrow",
+      message: `Payment for your property is verified and pending review.`,
+      meta: { purchaseId, escrowId: escrow._id },
+    });
 
-//     // Notify Admin
-//     if (adminUser) {
-//       await Notification.create({
-//         user: adminUser._id,
-//         title: "New Purchase Escrow Pending Review",
-//         message: `Payment verified for purchase. New escrow is pending your review.`,
-//         meta: { purchaseId, escrowId: escrow._id },
-//       });
-//     }
+    // Notify Admin
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "New Purchase Escrow Pending Review",
+        message: `Payment verified for purchase. New escrow is pending your review.`,
+        meta: { purchaseId, escrowId: escrow._id },
+      });
+    }
 
-//     // ------------------------------
-//     // SOCKET EVENT
-//     // ------------------------------
-//     if (global.io) {
-//       global.io.emit("notification", {
-//         type: "purchase_payment_verified",
-//         title: "Purchase Payment Verified",
-//         message: "A purchase payment has been verified and escrow created.",
-//         purchaseId,
-//         escrowId: escrow._id,
-//       });
-//     }
+    // ------------------------------
+    // SOCKET EVENT
+    // ------------------------------
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "purchase_payment_verified",
+        title: "Purchase Payment Verified",
+        message: "A purchase payment has been verified and escrow created.",
+        purchaseId,
+        escrowId: escrow._id,
+      });
+    }
 
-//     // ------------------------------
-//     // RESPONSE
-//     // ------------------------------
-//     res.json({
-//       success: true,
-//       message: "Payment verified successfully. Escrow created as pending.",
-//       purchase,
-//       escrow,
-//     });
-//   } catch (err) {
-//     console.error("verifyPurchasePayment error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
+    // ------------------------------
+    // RESPONSE
+    // ------------------------------
+    res.json({
+      success: true,
+      message: "Payment verified successfully. Escrow created as pending.",
+      purchase,
+      escrow,
+    });
+  } catch (err) {
+    console.error("verifyPurchasePayment error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 // ---------------------------
 // 🔄 Change Purchase Status (Admin Only)
@@ -466,7 +466,7 @@ const getAllPurchases = async (req, res) => {
 module.exports = {
   requestPurchase,
   initializePurchasePayment,
-  // verifyPurchasePayment,
+  verifyPurchasePayment,
   changePurchaseStatus,
   getPurchaseDetails,
   getUserPurchases,
