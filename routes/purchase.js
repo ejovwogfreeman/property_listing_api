@@ -19,10 +19,15 @@ const { protect, authorize } = require("../middlewares/auth");
 // ---------------------------
 
 // 1️⃣ Request Purchase (must have completed inspection first)
-router.post("/request", protect, requestPurchase);
+router.post("/request", protect, upload.none(), requestPurchase);
 
 // 2️⃣ Initialize Purchase Payment (Paystack)
-router.post("/initialize-payment", protect, initializePurchasePayment);
+router.post(
+  "/initialize-payment",
+  protect,
+  upload.none(),
+  initializePurchasePayment,
+);
 
 // 3️⃣ Verify Purchase Payment (Paystack)
 // router.post(
