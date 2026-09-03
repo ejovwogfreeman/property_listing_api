@@ -20,7 +20,7 @@ const purchaseRoutes = require("./routes/purchase");
 const adsRoutes = require("./routes/ads");
 const bankRoutes = require("./routes/bank");
 // const notificationRoutes = require("./routes/notification");
-// const escrowRoutes = require("./routes/escrow");
+const escrowRoutes = require("./routes/escrow");
 
 // Import socket handler
 const socketHandler = require("./middlewares/socket");
@@ -66,7 +66,7 @@ app.use("/api/purchase", purchaseRoutes);
 app.use("/api/ads", adsRoutes);
 app.use("/api/bank", bankRoutes);
 // app.use("/api/notification", notificationRoutes);
-// app.use("/api/escrow", escrowRoutes);
+app.use("/api/escrow", escrowRoutes);
 
 // ------------------------
 // Socket.IO setup
