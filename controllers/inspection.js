@@ -119,7 +119,7 @@ requestInspection = async (req, res) => {
 // ---------------------------
 initializeInspectionPayment = async (req, res) => {
   try {
-    const { inspectionId } = req.body;
+    const { inspectionId, callback_url } = req.body;
     const userId = req.user._id;
 
     const inspection = await Inspection.findById(inspectionId)
@@ -194,6 +194,7 @@ initializeInspectionPayment = async (req, res) => {
       req.user.email,
       inspection.fee * 100, // convert to kobo
       reference,
+      callback_url,
     );
 
     return res.json({
@@ -202,6 +203,7 @@ initializeInspectionPayment = async (req, res) => {
       reference,
       inspectionId: inspection._id,
       escrowId: escrow._id,
+      callback_url,
     });
   } catch (err) {
     console.error("initializeInspectionPayment error:", err);

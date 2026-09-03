@@ -78,7 +78,7 @@ requestPurchase = async (req, res) => {
 // ---------------------------
 initializePurchasePayment = async (req, res) => {
   try {
-    const { purchaseId } = req.body;
+    const { purchaseId, callback_url } = req.body;
     const buyerId = req.user._id;
 
     // Find purchase
@@ -100,6 +100,7 @@ initializePurchasePayment = async (req, res) => {
       req.user.email,
       purchase.price * 100,
       reference,
+      callback_url,
     );
 
     // ------------------------------
@@ -169,6 +170,7 @@ initializePurchasePayment = async (req, res) => {
       reference,
       purchaseId: purchase._id,
       escrowId: escrow._id,
+      callback_url,
     });
   } catch (err) {
     console.error("initializePurchasePayment error:", err);
