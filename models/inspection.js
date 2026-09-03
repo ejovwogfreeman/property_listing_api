@@ -13,7 +13,7 @@ const InspectionSchema = new Schema(
         "none",
         "inspection_requested",
         "inspection_scheduled",
-        "inispection_confirmed",
+        "inspection_confirmed",
         "inspection_completed",
       ],
       default: "none",
