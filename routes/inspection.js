@@ -93,7 +93,6 @@ router.patch(
   protect,
   upload.none(),
   confirmInspection,
-  s,
 );
 
 // ---------------------------
