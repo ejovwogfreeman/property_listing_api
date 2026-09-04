@@ -7,6 +7,7 @@ const {
   initializeInspectionPayment,
   verifyInspectionPayment,
   scheduleInspection,
+  rescheduleInspection,
   confirmInspection,
   completeInspection,
   changeInspectionStatus,
@@ -18,14 +19,14 @@ const {
 const { protect, authorize } = require("../middlewares/auth");
 
 // ---------------------------
-// 1️⃣ Request Inspection
+// 1️⃣ Request Inspection (Buyer)
 // POST /api/inspections/request
 // Body: { propertyId }
 // ---------------------------
 router.post("/request", protect, upload.none(), requestInspection);
 
 // ---------------------------
-// 2️⃣ Initialize Inspection Payment
+// 2️⃣ Initialize Inspection Payment (Paystack)
 // POST /api/inspections/initialize-payment
 // Body: { inspectionId, callback_url }
 // ---------------------------
@@ -37,7 +38,7 @@ router.post(
 );
 
 // ---------------------------
-// 3️⃣ Verify Inspection Payment
+// 3️⃣ Verify Inspection Payment (Admin / System)
 // POST /api/inspections/verify-payment
 // Body: { inspectionId, reference }
 // ---------------------------
@@ -50,14 +51,41 @@ router.post(
 );
 
 // ---------------------------
-// 4️⃣ Schedule Inspection (User / Buyer)
+// 4️⃣ Schedule Inspection (Agent / Owner ONLY)
 // PATCH /api/inspections/schedule
 // Body: { inspectionId, scheduledDate }
 // ---------------------------
-router.patch("/schedule", protect, upload.none(), scheduleInspection);
+router.patch(
+  "/schedule",
+  protect,
+  upload.none(),
+  authorize("agent", "admin"),
+  scheduleInspection,
+);
 
 // ---------------------------
-// 5️⃣ Confirm Inspection (Agent / Property Owner)
+// 5️⃣ Reschedule / Reject Inspection (Buyer)
+// PATCH /api/inspections/reschedule
+// Body: { inspectionId, reason }
+// ---------------------------
+router.patch("/reschedule", protect, upload.none(), rescheduleInspection);
+
+// ---------------------------
+// 📂 Static GET Lists (Must come BEFORE /:inspectionId)
+// ---------------------------
+router.get("/user-inspections", protect, getUserInspections);
+
+router.get(
+  "/agent-inspections",
+  protect,
+  authorize("agent"),
+  getAgentInspections,
+);
+
+router.get("/all-inspections", protect, authorize("admin"), getAllInspections);
+
+// ---------------------------
+// 6️⃣ Confirm / Accept Inspection (Agent / Owner)
 // PATCH /api/inspections/:inspectionId/confirm
 // ---------------------------
 router.patch(
@@ -68,7 +96,7 @@ router.patch(
 );
 
 // ---------------------------
-// 6️⃣ Complete Inspection (User / Buyer)
+// 7️⃣ Complete Inspection (Buyer)
 // PATCH /api/inspections/:inspectionId/complete
 // ---------------------------
 router.patch(
@@ -92,30 +120,7 @@ router.patch(
 );
 
 // ---------------------------
-// Get All Inspections of logged-in user
-// GET /api/inspections/user-inspections
-// ---------------------------
-router.get("/user-inspections", protect, getUserInspections);
-
-// ---------------------------
-// Get All Inspections of logged-in agent
-// GET /api/inspections/agent-inspections
-// ---------------------------
-router.get(
-  "/agent-inspections",
-  protect,
-  authorize("agent"),
-  getAgentInspections,
-);
-
-// ---------------------------
-// Get All Inspections System-wide (Admin)
-// GET /api/inspections/all-inspections
-// ---------------------------
-router.get("/all-inspections", protect, authorize("admin"), getAllInspections);
-
-// ---------------------------
-// Get Single Inspection Details
+// 8️⃣ Get Inspection Details (Single Item)
 // GET /api/inspections/:inspectionId
 // ---------------------------
 router.get("/:inspectionId", protect, getInspectionDetails);

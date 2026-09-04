@@ -11,37 +11,50 @@ const {
 const crypto = require("crypto");
 
 // ---------------------------
-// 1️⃣ Request Inspection
+// 1️⃣ Request Inspection (Allows resume if unpaid)
 // ---------------------------
 const requestInspection = async (req, res) => {
   try {
     const { propertyId } = req.body;
     const userId = req.user._id;
 
-    // Fetch property
     const property = await Property.findById(propertyId);
     if (!property)
-      return res.status(404).json({ message: "Property not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
 
-    // 🛑 Check for existing inspection regardless of status
+    // Check for existing inspection request
     const existingInspection = await Inspection.findOne({
       property: propertyId,
       user: userId,
     });
 
     if (existingInspection) {
+      // If fee is NOT paid yet, return the existing ID so the user can resume payment seamlessly
+      if (!existingInspection.feePaid) {
+        return res.status(200).json({
+          success: true,
+          resumed: true,
+          message:
+            "Unpaid inspection request found. You can resume payment with this ID.",
+          inspectionId: existingInspection._id,
+          status: existingInspection.status,
+        });
+      }
+
+      // If already paid/processed, prevent duplicate requests
       return res.status(400).json({
         success: false,
-        message: "An inspection request for this property already exists.",
+        message:
+          "An active or completed inspection for this property already exists.",
         inspectionId: existingInspection._id,
         status: existingInspection.status,
       });
     }
 
-    // Generate 6-digit code
     const code = generateCode();
 
-    // Create inspection record with status: "inspection_requested"
     const inspection = await Inspection.create({
       property: property._id,
       owner: property.owner,
@@ -51,7 +64,6 @@ const requestInspection = async (req, res) => {
       status: "inspection_requested",
     });
 
-    // Notification to user
     await Notification.create({
       user: userId,
       title: "Inspection Requested",
@@ -59,7 +71,6 @@ const requestInspection = async (req, res) => {
       meta: { inspectionId: inspection._id },
     });
 
-    // Emit socket.io event
     if (global.io) {
       global.io.emit("notification", {
         type: "inspection_requested",
@@ -71,10 +82,10 @@ const requestInspection = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message:
-        "Inspection requested successfully. Proceed to payment/scheduling.",
+      resumed: false,
+      message: "Inspection requested successfully. Proceed to payment.",
       inspectionId: inspection._id,
-      code, // remove in production
+      code,
     });
   } catch (err) {
     console.error("requestInspection error:", err);
@@ -95,36 +106,25 @@ const initializeInspectionPayment = async (req, res) => {
       .populate("property");
 
     if (!inspection)
-      return res.status(404).json({ message: "Inspection not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Inspection not found" });
 
-    if (inspection.user.toString() !== userId.toString())
-      return res.status(403).json({ message: "Unauthorized" });
+    if (inspection.user?.toString() !== userId.toString())
+      return res.status(403).json({ success: false, message: "Unauthorized" });
 
-    // Prevent re-initializing if already paid or past initialization steps
-    if (
-      inspection.feePaid ||
-      [
-        "inspection_paid",
-        "inspection_scheduled",
-        "inspection_confirmed",
-        "inspection_completed",
-      ].includes(inspection.status)
-    ) {
+    if (inspection.feePaid) {
       return res.status(400).json({
         success: false,
-        message:
-          "Inspection payment has already been initialized, paid, or processed.",
+        message: "Inspection fee has already been paid.",
       });
     }
 
-    // Generate unique transaction reference
     const reference = crypto.randomBytes(16).toString("hex");
 
-    // Update status to "inspection_initialized" upon starting payment
     inspection.status = "inspection_initialized";
     await inspection.save();
 
-    // 🔔 Notifications
     await Notification.create({
       user: inspection.user,
       title: "Inspection Payment Started",
@@ -132,12 +132,14 @@ const initializeInspectionPayment = async (req, res) => {
       meta: { inspectionId },
     });
 
-    await Notification.create({
-      user: inspection.owner,
-      title: "Incoming Inspection Payment",
-      message: `A buyer has initiated payment for inspection of your property "${inspection.property?.title}".`,
-      meta: { inspectionId },
-    });
+    if (inspection.owner) {
+      await Notification.create({
+        user: inspection.owner._id || inspection.owner,
+        title: "Incoming Inspection Payment",
+        message: `A buyer has initiated payment for inspection of your property "${inspection.property?.title}".`,
+        meta: { inspectionId },
+      });
+    }
 
     if (global.io) {
       global.io.emit("notification", {
@@ -148,10 +150,9 @@ const initializeInspectionPayment = async (req, res) => {
       });
     }
 
-    // Initialize Paystack transaction
     const init = await initializeTransaction(
       req.user.email,
-      inspection.fee * 100, // convert to kobo
+      inspection.fee * 100,
       reference,
       callback_url,
     );
@@ -178,58 +179,57 @@ const verifyInspectionPayment = async (req, res) => {
 
     const verification = await verifyTransaction(reference);
     if (!verification || verification.data.status !== "success") {
-      return res
-        .status(400)
-        .json({ message: "Payment not successful or verification failed" });
+      return res.status(400).json({
+        success: false,
+        message: "Payment not successful or verification failed",
+      });
     }
 
-    // Find inspection
     const inspection = await Inspection.findById(inspectionId)
       .populate("owner")
       .populate("property");
 
     if (!inspection) {
-      return res.status(404).json({ message: "Inspection not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Inspection not found" });
     }
 
-    // Prevent duplicate escrow creation if already verified
     let escrow = await Escrow.findOne({ reference });
     if (!escrow) {
-      // 👉 CREATE ESCROW ENTRY ONLY AFTER SUCCESSFUL PAYMENT VERIFICATION
       escrow = await Escrow.create({
         property: inspection.property?._id,
         buyer: inspection.user,
-        seller: inspection.owner?._id,
+        seller: inspection.owner?._id || inspection.owner,
         amount: inspection.fee,
-        status: "pending", // Always pending for admin review/release later
+        status: "pending",
         reference,
         type: "inspection",
       });
     }
 
-    // Find admin
     const adminUser = await User.findOne({ role: "admin" });
 
-    // Update Inspection fields & change status to "inspection_paid"
     inspection.feePaid = true;
     inspection.escrowHeldBy = adminUser?._id;
     inspection.status = "inspection_paid";
     await inspection.save();
 
-    // 🔔 Notifications
     await Notification.create({
       user: inspection.user,
       title: "Inspection Fee Paid",
-      message: `Your inspection fee has been paid successfully and is pending escrow review.`,
+      message: `Your inspection fee has been paid successfully. Waiting for the agent to schedule a date.`,
       meta: { inspectionId, escrowId: escrow._id },
     });
 
-    await Notification.create({
-      user: inspection.owner,
-      title: "Inspection Fee Received",
-      message: `The inspection fee for your property "${inspection.property?.title}" has been paid and confirmed.`,
-      meta: { inspectionId, escrowId: escrow._id },
-    });
+    if (inspection.owner) {
+      await Notification.create({
+        user: inspection.owner._id || inspection.owner,
+        title: "Inspection Fee Received - Action Required",
+        message: `Inspection fee for "${inspection.property?.title}" is paid. Please schedule an inspection date.`,
+        meta: { inspectionId, escrowId: escrow._id },
+      });
+    }
 
     if (adminUser) {
       await Notification.create({
@@ -264,7 +264,7 @@ const verifyInspectionPayment = async (req, res) => {
 };
 
 // ---------------------------
-// 4️⃣ Schedule Inspection (User / Buyer)
+// 4️⃣ Schedule Inspection (Agent / Property Owner ONLY)
 // ---------------------------
 const scheduleInspection = async (req, res) => {
   try {
@@ -279,14 +279,25 @@ const scheduleInspection = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
-    if (inspection.user.toString() !== userId.toString()) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
+    const ownerId = inspection.owner?._id || inspection.owner;
+    const isOwner = ownerId && ownerId.toString() === userId.toString();
+    const isAgent =
+      inspection.property?.agent &&
+      inspection.property.agent.toString() === userId.toString();
+
+    if (!isOwner && !isAgent && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Unauthorized. Only the property owner or agent can schedule an inspection date.",
+      });
     }
 
     if (!inspection.feePaid) {
       return res.status(400).json({
         success: false,
-        message: "Please pay the inspection fee before scheduling a date.",
+        message:
+          "Cannot schedule date because the inspection fee has not been paid by the user yet.",
       });
     }
 
@@ -294,11 +305,10 @@ const scheduleInspection = async (req, res) => {
     inspection.status = "inspection_scheduled";
     await inspection.save();
 
-    // 🔔 Notifications
     await Notification.create({
-      user: inspection.owner,
-      title: "Inspection Scheduled",
-      message: `The user has scheduled an inspection for "${inspection.property?.title}" on ${new Date(scheduledDate).toLocaleString()}.`,
+      user: inspection.user,
+      title: "Inspection Date Scheduled",
+      message: `The agent has scheduled your inspection for "${inspection.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or reschedule if unsuitable.`,
       meta: { inspectionId },
     });
 
@@ -306,15 +316,14 @@ const scheduleInspection = async (req, res) => {
       global.io.emit("notification", {
         type: "inspection_scheduled",
         title: "Inspection Scheduled",
-        message: `An inspection date has been set for "${inspection.property?.title}".`,
+        message: `An inspection date has been set by the agent for "${inspection.property?.title}".`,
         inspectionId,
       });
     }
 
     res.json({
       success: true,
-      message:
-        "Inspection scheduled successfully. Waiting for agent confirmation.",
+      message: "Inspection scheduled successfully. Notified buyer.",
       inspection,
     });
   } catch (err) {
@@ -324,7 +333,70 @@ const scheduleInspection = async (req, res) => {
 };
 
 // ---------------------------
-// 5️⃣ Confirm Inspection (Agent / Property Owner)
+// 5️⃣ Reschedule / Reject Inspection Date (User / Buyer)
+// ---------------------------
+const rescheduleInspection = async (req, res) => {
+  try {
+    const { inspectionId, reason } = req.body;
+    const userId = req.user._id;
+
+    const inspection =
+      await Inspection.findById(inspectionId).populate("property");
+    if (!inspection) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Inspection not found" });
+    }
+
+    if (inspection.user?.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (inspection.status !== "inspection_scheduled") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "You can only request a reschedule for an inspection that has a scheduled date.",
+      });
+    }
+
+    // Reset back to 'inspection_paid' so the agent knows to pick a new date
+    inspection.status = "inspection_paid";
+    inspection.scheduledDate = null;
+    await inspection.save();
+
+    if (inspection.owner) {
+      await Notification.create({
+        user: inspection.owner._id || inspection.owner,
+        title: "Inspection Date Rejected / Reschedule Requested",
+        message: `The buyer rejected the scheduled date for "${inspection.property?.title}". Reason: ${reason || "Not suitable"}. Please pick a new date.`,
+        meta: { inspectionId },
+      });
+    }
+
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "inspection_reschedule_requested",
+        title: "Inspection Reschedule Requested",
+        message: `Buyer rejected the inspection date for "${inspection.property?.title}".`,
+        inspectionId,
+      });
+    }
+
+    res.json({
+      success: true,
+      message:
+        "Inspection date rejected. The agent has been notified to reschedule.",
+      inspection,
+    });
+  } catch (err) {
+    console.error("rescheduleInspection error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 6️⃣ Confirm / Accept Inspection (Agent / Property Owner)
 // ---------------------------
 const confirmInspection = async (req, res) => {
   try {
@@ -339,8 +411,8 @@ const confirmInspection = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
-    // Verify if logged-in user is the property owner or the assigned agent
-    const isOwner = inspection.owner.toString() === userId.toString();
+    const ownerId = inspection.owner?._id || inspection.owner;
+    const isOwner = ownerId && ownerId.toString() === userId.toString();
     const isAgent =
       inspection.property?.agent &&
       inspection.property.agent.toString() === userId.toString();
@@ -357,14 +429,13 @@ const confirmInspection = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Inspection must be scheduled by the user first before confirmation.",
+          "Inspection must be scheduled first before it can be confirmed/accepted.",
       });
     }
 
     inspection.status = "inspection_confirmed";
     await inspection.save();
 
-    // Update escrow status if needed
     let escrow = await Escrow.findOne({
       property: inspection.property?._id,
       buyer: inspection.user,
@@ -375,11 +446,10 @@ const confirmInspection = async (req, res) => {
       await escrow.save();
     }
 
-    // 🔔 Notifications
     await Notification.create({
       user: inspection.user,
       title: "Inspection Confirmed",
-      message: `Your inspection for "${inspection.property?.title}" has been confirmed by the agent/owner.`,
+      message: `Your inspection for "${inspection.property?.title}" has been confirmed/accepted by the agent.`,
       meta: { inspectionId },
     });
 
@@ -394,7 +464,7 @@ const confirmInspection = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Inspection confirmed successfully.",
+      message: "Inspection accepted and confirmed successfully.",
       inspection,
     });
   } catch (err) {
@@ -404,7 +474,7 @@ const confirmInspection = async (req, res) => {
 };
 
 // ---------------------------
-// 6️⃣ Mark Inspection Completed (User / Buyer)
+// 7️⃣ Mark Inspection Completed (User / Buyer)
 // ---------------------------
 const completeInspection = async (req, res) => {
   try {
@@ -419,7 +489,7 @@ const completeInspection = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
-    if (inspection.user.toString() !== userId.toString()) {
+    if (inspection.user?.toString() !== userId.toString()) {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
@@ -436,13 +506,14 @@ const completeInspection = async (req, res) => {
 
     const adminUser = await User.findOne({ role: "admin" });
 
-    // 🔔 Notifications
-    await Notification.create({
-      user: inspection.owner,
-      title: "Inspection Completed",
-      message: `The inspection for "${inspection.property?.title}" has been marked as completed by the buyer.`,
-      meta: { inspectionId },
-    });
+    if (inspection.owner) {
+      await Notification.create({
+        user: inspection.owner._id || inspection.owner,
+        title: "Inspection Completed",
+        message: `The inspection for "${inspection.property?.title}" has been marked as completed by the buyer.`,
+        meta: { inspectionId },
+      });
+    }
 
     if (adminUser) {
       await Notification.create({
@@ -474,7 +545,7 @@ const completeInspection = async (req, res) => {
 };
 
 // ---------------------------
-// 🔄 Change Inspection Status (Admin Only fallback)
+// 🔄 Change Inspection Status (Admin Fallback)
 // ---------------------------
 const changeInspectionStatus = async (req, res) => {
   try {
@@ -510,17 +581,6 @@ const changeInspectionStatus = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
-    if (
-      ["inspection_confirmed", "inspection_completed"].includes(status) &&
-      !inspection.feePaid
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Cannot advance status because the inspection fee has not been paid yet.",
-      });
-    }
-
     inspection.status = status;
     inspection.escrowHeldBy = adminId;
     await inspection.save();
@@ -533,35 +593,6 @@ const changeInspectionStatus = async (req, res) => {
     if (escrow && status === "inspection_confirmed") {
       escrow.status = "approved";
       await escrow.save();
-    }
-
-    const formattedStatus = status.replace(/_/g, " ");
-    const notificationMessage = `Your inspection status has been updated to: ${formattedStatus}.`;
-
-    await Notification.create({
-      user: inspection.user,
-      title: "Inspection Status Updated",
-      message: notificationMessage,
-      meta: { inspectionId, status, escrowId: escrow?._id },
-    });
-
-    if (inspection.owner) {
-      await Notification.create({
-        user: inspection.owner._id || inspection.owner,
-        title: "Property Inspection Status Updated",
-        message: `The inspection status for your property "${inspection.property?.title}" has changed to: ${formattedStatus}.`,
-        meta: { inspectionId, status },
-      });
-    }
-
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "inspection_status_changed",
-        title: "Inspection Status Updated",
-        message: notificationMessage,
-        inspectionId,
-        status,
-      });
     }
 
     res.json({
@@ -590,7 +621,9 @@ const getInspectionDetails = async (req, res) => {
       .populate("escrowHeldBy", "name email");
 
     if (!inspection)
-      return res.status(404).json({ message: "Inspection not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Inspection not found" });
 
     res.json({ success: true, inspection });
   } catch (err) {
@@ -679,6 +712,7 @@ module.exports = {
   initializeInspectionPayment,
   verifyInspectionPayment,
   scheduleInspection,
+  rescheduleInspection,
   confirmInspection,
   completeInspection,
   changeInspectionStatus,
