@@ -85,7 +85,7 @@ router.get(
 router.get("/all-inspections", protect, authorize("admin"), getAllInspections);
 
 // ---------------------------
-// 6️⃣ Confirm / Accept Inspection (Agent / Owner)
+// 6️⃣ Confirm / Accept Inspection (Owner)
 // PATCH /api/inspections/:inspectionId/confirm
 // ---------------------------
 router.patch(

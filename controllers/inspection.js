@@ -396,7 +396,7 @@ const rescheduleInspection = async (req, res) => {
 };
 
 // ---------------------------
-// 6️⃣ Confirm / Accept Inspection (Agent / Property Owner)
+// 6️⃣ Confirm / Accept Inspection (User / Buyer ONLY)
 // ---------------------------
 const confirmInspection = async (req, res) => {
   try {
@@ -411,17 +411,12 @@ const confirmInspection = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
-    const ownerId = inspection.owner?._id || inspection.owner;
-    const isOwner = ownerId && ownerId.toString() === userId.toString();
-    const isAgent =
-      inspection.property?.agent &&
-      inspection.property.agent.toString() === userId.toString();
-
-    if (!isOwner && !isAgent && req.user.role !== "admin") {
+    // Ensure only the buyer who requested it can confirm/accept the schedule
+    if (inspection.user?.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
         message:
-          "Unauthorized. Only the property owner or agent can confirm this inspection.",
+          "Unauthorized. Only the buyer can confirm this inspection schedule.",
       });
     }
 
@@ -429,7 +424,7 @@ const confirmInspection = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Inspection must be scheduled first before it can be confirmed/accepted.",
+          "Inspection must be scheduled by the agent first before it can be confirmed.",
       });
     }
 
@@ -446,25 +441,27 @@ const confirmInspection = async (req, res) => {
       await escrow.save();
     }
 
-    await Notification.create({
-      user: inspection.user,
-      title: "Inspection Confirmed",
-      message: `Your inspection for "${inspection.property?.title}" has been confirmed/accepted by the agent.`,
-      meta: { inspectionId },
-    });
+    if (inspection.owner) {
+      await Notification.create({
+        user: inspection.owner._id || inspection.owner,
+        title: "Inspection Confirmed by Buyer",
+        message: `The buyer has accepted and confirmed the inspection schedule for "${inspection.property?.title}".`,
+        meta: { inspectionId },
+      });
+    }
 
     if (global.io) {
       global.io.emit("notification", {
         type: "inspection_confirmed",
         title: "Inspection Confirmed",
-        message: `Inspection confirmed for "${inspection.property?.title}".`,
+        message: `Inspection confirmed by buyer for "${inspection.property?.title}".`,
         inspectionId,
       });
     }
 
     res.json({
       success: true,
-      message: "Inspection accepted and confirmed successfully.",
+      message: "Inspection schedule confirmed successfully.",
       inspection,
     });
   } catch (err) {
