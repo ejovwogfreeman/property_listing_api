@@ -34,11 +34,12 @@ router.post(
   "/verify-payment",
   protect,
   authorize("admin"),
+  upload.none(),
   verifyPurchasePayment,
 );
 
 router.patch(
-  "status/:purchaseId",
+  "/status/:purchaseId",
   protect,
   authorize("admin"),
   upload.none(),
