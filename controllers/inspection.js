@@ -656,15 +656,7 @@ const getAgentInspections = async (req, res) => {
   try {
     const agentId = req.user._id;
 
-    const properties = await Property.find(
-      { agent: agentId },
-      "_id title price address",
-    );
-    const propertyIds = properties.map((p) => p._id);
-
-    const inspections = await Inspection.find({
-      property: { $in: propertyIds },
-    })
+    const inspections = await Inspection.find({ owner: agentId })
       .populate("property", "title price address")
       .populate("user", "name email")
       .populate("owner", "name email")
@@ -673,7 +665,6 @@ const getAgentInspections = async (req, res) => {
 
     res.json({
       success: true,
-      properties,
       inspections,
     });
   } catch (err) {
