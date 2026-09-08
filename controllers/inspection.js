@@ -637,12 +637,25 @@ const getUserInspections = async (req, res) => {
     const userId = req.user._id;
 
     const inspections = await Inspection.find({ user: userId })
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("owner", "name email")
       .populate("escrowHeldBy", "name email")
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, inspections });
+    const formattedInspections = inspections.map((inspection) => {
+      const inspectionObj = inspection.toObject();
+      if (inspectionObj.property) {
+        inspectionObj.property.image =
+          inspectionObj.property.images &&
+          inspectionObj.property.images.length > 0
+            ? inspectionObj.property.images[0]
+            : null;
+        // Keeps the full `images` array intact!
+      }
+      return inspectionObj;
+    });
+
+    res.json({ success: true, inspections: formattedInspections });
   } catch (err) {
     console.error("getUserInspections error:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -657,15 +670,28 @@ const getAgentInspections = async (req, res) => {
     const agentId = req.user._id;
 
     const inspections = await Inspection.find({ owner: agentId })
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("user", "name email")
       .populate("owner", "name email")
       .populate("escrowHeldBy", "name email")
       .sort({ createdAt: -1 });
 
+    // Map through inspections to extract the first image of the property
+    const formattedInspections = inspections.map((inspection) => {
+      const inspectionObj = inspection.toObject();
+      if (
+        inspectionObj.property &&
+        Array.isArray(inspectionObj.property.images)
+      ) {
+        inspectionObj.property.firstImage =
+          inspectionObj.property.images[0] || null;
+      }
+      return inspectionObj;
+    });
+
     res.json({
       success: true,
-      inspections,
+      inspections: formattedInspections,
     });
   } catch (err) {
     console.error("getAgentInspections error:", err);
@@ -679,15 +705,28 @@ const getAgentInspections = async (req, res) => {
 const getAllInspections = async (req, res) => {
   try {
     const inspections = await Inspection.find()
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("user", "name email")
       .populate("owner", "name email")
       .populate("escrowHeldBy", "name email")
       .sort({ createdAt: -1 });
 
+    const formattedInspections = inspections.map((inspection) => {
+      const inspectionObj = inspection.toObject();
+      if (inspectionObj.property) {
+        inspectionObj.property.image =
+          inspectionObj.property.images &&
+          inspectionObj.property.images.length > 0
+            ? inspectionObj.property.images[0]
+            : null;
+        // Notice: `images` array is NOT deleted here either!
+      }
+      return inspectionObj;
+    });
+
     res.json({
       success: true,
-      inspections,
+      inspections: formattedInspections,
     });
   } catch (err) {
     console.error("getAllInspections error:", err);
