@@ -11,20 +11,8 @@ const {
 const { protect, authorize } = require("../middlewares/auth");
 
 router.get("/", protect, authorize("admin"), getAllEscrows);
-router.get(
-  "/agent",
-  protect,
-  authorize("admin"),
-  authorize("agent"),
-  getAgentEscrows,
-);
-router.get(
-  "/:id",
-  protect,
-  authorize("admin"),
-  authorize("agent"),
-  getEscrowById,
-);
+router.get("/agent", protect, authorize("admin", "agent"), getAgentEscrows);
+router.get("/:id", protect, authorize("admin", "agent"), getEscrowById);
 router.patch(
   "/status",
   protect,
