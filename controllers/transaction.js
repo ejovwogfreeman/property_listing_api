@@ -337,80 +337,80 @@ const changeTransactionStatus = async (req, res) => {
 //   }
 // };
 
-const getUserTransactions = async (req, res) => {
-  try {
-    const userId = req.user._id;
+// const getUserTransactions = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
 
-    // Fetch all related records in parallel using .lean() for performance
-    const [transactions, inspections, purchases, escrows] = await Promise.all([
-      Transaction.find({
-        $or: [{ from: userId }, { to: userId }],
-      })
-        .populate("from", "name email")
-        .populate("to", "name email")
-        .lean(),
+//     // Fetch all related records in parallel using .lean() for performance
+//     const [transactions, inspections, purchases, escrows] = await Promise.all([
+//       Transaction.find({
+//         $or: [{ from: userId }, { to: userId }],
+//       })
+//         .populate("from", "name email")
+//         .populate("to", "name email")
+//         .lean(),
 
-      Inspection.find({ user: userId })
-        .populate("property", "title price address")
-        .populate("user", "name email")
-        .populate("owner", "name email")
-        .lean(),
+//       Inspection.find({ user: userId })
+//         .populate("property", "title price address")
+//         .populate("user", "name email")
+//         .populate("owner", "name email")
+//         .lean(),
 
-      Purchase.find({ buyer: userId })
-        .populate("property", "title price address")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
-        .lean(),
+//       Purchase.find({ buyer: userId })
+//         .populate("property", "title price address")
+//         .populate("buyer", "name email")
+//         .populate("seller", "name email")
+//         .lean(),
 
-      Escrow.find({ buyer: userId })
-        .populate("property", "title price address")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
-        .lean(),
-    ]);
+//       Escrow.find({ buyer: userId })
+//         .populate("property", "title price address")
+//         .populate("buyer", "name email")
+//         .populate("seller", "name email")
+//         .lean(),
+//     ]);
 
-    // Tag each item with a recordType
-    const taggedTransactions = transactions.map((item) => ({
-      ...item,
-      recordType: "transaction",
-    }));
-    const taggedInspections = inspections.map((item) => ({
-      ...item,
-      recordType: "inspection",
-    }));
-    const taggedPurchases = purchases.map((item) => ({
-      ...item,
-      recordType: "purchase",
-    }));
-    const taggedEscrows = escrows.map((item) => ({
-      ...item,
-      recordType: "escrow",
-    }));
+//     // Tag each item with a recordType
+//     const taggedTransactions = transactions.map((item) => ({
+//       ...item,
+//       recordType: "transaction",
+//     }));
+//     const taggedInspections = inspections.map((item) => ({
+//       ...item,
+//       recordType: "inspection",
+//     }));
+//     const taggedPurchases = purchases.map((item) => ({
+//       ...item,
+//       recordType: "purchase",
+//     }));
+//     const taggedEscrows = escrows.map((item) => ({
+//       ...item,
+//       recordType: "escrow",
+//     }));
 
-    // Combine all arrays into one single list
-    const allActivities = [
-      ...taggedTransactions,
-      ...taggedInspections,
-      ...taggedPurchases,
-      ...taggedEscrows,
-    ];
+//     // Combine all arrays into one single list
+//     const allActivities = [
+//       ...taggedTransactions,
+//       ...taggedInspections,
+//       ...taggedPurchases,
+//       ...taggedEscrows,
+//     ];
 
-    // Sort everything globally by createdAt descending (newest first)
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+//     // Sort everything globally by createdAt descending (newest first)
+//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getUserTransactions error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
+//     return res.json({
+//       success: true,
+//       count: allActivities.length,
+//       activities: allActivities,
+//     });
+//   } catch (err) {
+//     console.error("getUserTransactions error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message,
+//     });
+//   }
+// };
 
 // const getAgentTransactions = async (req, res) => {
 //   try {
@@ -439,91 +439,91 @@ const getUserTransactions = async (req, res) => {
 //   }
 // };
 
-const getAgentTransactions = async (req, res) => {
-  try {
-    const agentId = req.params.agentId || req.user._id;
+// const getAgentTransactions = async (req, res) => {
+//   try {
+//     const agentId = req.params.agentId || req.user._id;
 
-    // Fetch all related records in parallel using .lean() for performance
-    const [transactions, inspections, purchases, escrows] = await Promise.all([
-      Transaction.find({
-        $or: [{ to: agentId }, { from: agentId }],
-      })
-        .populate("from", "name email")
-        .populate("to", "name email")
-        .lean(),
+//     // Fetch all related records in parallel using .lean() for performance
+//     const [transactions, inspections, purchases, escrows] = await Promise.all([
+//       Transaction.find({
+//         $or: [{ to: agentId }, { from: agentId }],
+//       })
+//         .populate("from", "name email")
+//         .populate("to", "name email")
+//         .lean(),
 
-      Inspection.find({ owner: agentId })
-        .populate("property", "title price address")
-        .populate("user", "name email")
-        .populate("owner", "name email")
-        .lean(),
+//       Inspection.find({ owner: agentId })
+//         .populate("property", "title price address")
+//         .populate("user", "name email")
+//         .populate("owner", "name email")
+//         .lean(),
 
-      Purchase.find({ seller: agentId })
-        .populate("property", "title price address")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
-        .lean(),
+//       Purchase.find({ seller: agentId })
+//         .populate("property", "title price address")
+//         .populate("buyer", "name email")
+//         .populate("seller", "name email")
+//         .lean(),
 
-      Escrow.find({ seller: agentId })
-        .populate("property", "title price address")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
-        .lean(),
-    ]);
+//       Escrow.find({ seller: agentId })
+//         .populate("property", "title price address")
+//         .populate("buyer", "name email")
+//         .populate("seller", "name email")
+//         .lean(),
+//     ]);
 
-    // Tag each item with a recordType
-    const taggedTransactions = transactions.map((item) => ({
-      ...item,
-      recordType: "transaction",
-    }));
-    const taggedInspections = inspections.map((item) => ({
-      ...item,
-      recordType: "inspection",
-    }));
-    const taggedPurchases = purchases.map((item) => ({
-      ...item,
-      recordType: "purchase",
-    }));
-    const taggedEscrows = escrows.map((item) => ({
-      ...item,
-      recordType: "escrow",
-    }));
+//     // Tag each item with a recordType
+//     const taggedTransactions = transactions.map((item) => ({
+//       ...item,
+//       recordType: "transaction",
+//     }));
+//     const taggedInspections = inspections.map((item) => ({
+//       ...item,
+//       recordType: "inspection",
+//     }));
+//     const taggedPurchases = purchases.map((item) => ({
+//       ...item,
+//       recordType: "purchase",
+//     }));
+//     const taggedEscrows = escrows.map((item) => ({
+//       ...item,
+//       recordType: "escrow",
+//     }));
 
-    // Combine all arrays into one single list
-    const allActivities = [
-      ...taggedTransactions,
-      ...taggedInspections,
-      ...taggedPurchases,
-      ...taggedEscrows,
-    ];
+//     // Combine all arrays into one single list
+//     const allActivities = [
+//       ...taggedTransactions,
+//       ...taggedInspections,
+//       ...taggedPurchases,
+//       ...taggedEscrows,
+//     ];
 
-    // Sort everything globally by createdAt descending (newest first)
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+//     // Sort everything globally by createdAt descending (newest first)
+//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    // Calculate total earned from agent payment transactions (or adjust logic as needed)
-    const agentPayments = transactions.filter(
-      (t) =>
-        t.to?.toString() === agentId.toString() && t.type === "agent_payment",
-    );
-    const totalEarned = agentPayments.reduce(
-      (sum, t) => sum + (t.amount || 0),
-      0,
-    );
+//     // Calculate total earned from agent payment transactions (or adjust logic as needed)
+//     const agentPayments = transactions.filter(
+//       (t) =>
+//         t.to?.toString() === agentId.toString() && t.type === "agent_payment",
+//     );
+//     const totalEarned = agentPayments.reduce(
+//       (sum, t) => sum + (t.amount || 0),
+//       0,
+//     );
 
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      totalEarned,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getAgentTransactions error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
-  }
-};
+//     return res.json({
+//       success: true,
+//       count: allActivities.length,
+//       totalEarned,
+//       activities: allActivities,
+//     });
+//   } catch (err) {
+//     console.error("getAgentTransactions error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message,
+//     });
+//   }
+// };
 
 // const getAllTransactions = async (req, res) => {
 //   try {
@@ -548,25 +548,285 @@ const getAgentTransactions = async (req, res) => {
 
 // 📊 Get All Platform Activities (Mixed & Sorted)
 // ---------------------------
-const getAllTransactions = async (req, res) => {
+// const getAllTransactions = async (req, res) => {
+//   try {
+//     // Fetch all records in parallel using .lean() for performance
+//     const [transactions, inspections, purchases, escrows] = await Promise.all([
+//       Transaction.find()
+//         .populate("from", "name email")
+//         .populate("to", "name email")
+//         .lean(),
+
+//       Inspection.find()
+//         .populate("property", "title price address")
+//         .populate("user", "name email")
+//         .populate("owner", "name email")
+//         .lean(),
+
+//       Purchase.find()
+//         .populate("property", "title price address")
+//         .populate("buyer", "name email")
+//         .populate("seller", "name email")
+//         .lean(),
+
+//       Escrow.find()
+//         .populate("property", "title price address")
+//         .populate("buyer", "name email")
+//         .populate("seller", "name email")
+//         .lean(),
+//     ]);
+
+//     // Tag each item with a recordType for frontend differentiation
+//     const taggedTransactions = transactions.map((item) => ({
+//       ...item,
+//       recordType: "transaction",
+//     }));
+//     const taggedInspections = inspections.map((item) => ({
+//       ...item,
+//       recordType: "inspection",
+//     }));
+//     const taggedPurchases = purchases.map((item) => ({
+//       ...item,
+//       recordType: "purchase",
+//     }));
+//     const taggedEscrows = escrows.map((item) => ({
+//       ...item,
+//       recordType: "escrow",
+//     }));
+
+//     // Combine all arrays into one single list
+//     const allActivities = [
+//       ...taggedTransactions,
+//       ...taggedInspections,
+//       ...taggedPurchases,
+//       ...taggedEscrows,
+//     ];
+
+//     // Sort everything globally by createdAt descending (newest first)
+//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+//     return res.json({
+//       success: true,
+//       count: allActivities.length,
+//       activities: allActivities,
+//     });
+//   } catch (err) {
+//     console.error("getAllTransactions error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       message: err.message,
+//     });
+//   }
+// };
+
+const getUserTransactionsAndEscrows = async (req, res) => {
   try {
-    // Fetch all records in parallel using .lean() for performance
-    const [transactions, inspections, purchases, escrows] = await Promise.all([
-      Transaction.find()
+    const userId = req.user._id;
+
+    // Fetch transactions and escrows in parallel
+    const [transactions, escrows] = await Promise.all([
+      Transaction.find({
+        $or: [{ from: userId }, { to: userId }],
+      })
         .populate("from", "name email")
         .populate("to", "name email")
         .lean(),
 
-      Inspection.find()
+      Escrow.find({ buyer: userId })
+        .populate("property", "title price address")
+        .populate("buyer", "name email")
+        .populate("seller", "name email")
+        .lean(),
+    ]);
+
+    // Tag records
+    const taggedTransactions = transactions.map((item) => ({
+      ...item,
+      recordType: "transaction",
+    }));
+    const taggedEscrows = escrows.map((item) => ({
+      ...item,
+      recordType: "escrow",
+    }));
+
+    // Combine and sort by newest first
+    const allActivities = [...taggedTransactions, ...taggedEscrows];
+    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.json({
+      success: true,
+      count: allActivities.length,
+      activities: allActivities,
+    });
+  } catch (err) {
+    console.error("getUserTransactionsAndEscrows error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+const getUserPurchasesAndInspections = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Fetch purchases and inspections in parallel
+    const [purchases, inspections] = await Promise.all([
+      Purchase.find({ buyer: userId })
+        .populate("property", "title price address")
+        .populate("buyer", "name email")
+        .populate("seller", "name email")
+        .lean(),
+
+      Inspection.find({ user: userId })
         .populate("property", "title price address")
         .populate("user", "name email")
         .populate("owner", "name email")
         .lean(),
+    ]);
 
-      Purchase.find()
+    // Tag records
+    const taggedPurchases = purchases.map((item) => ({
+      ...item,
+      recordType: "purchase",
+    }));
+    const taggedInspections = inspections.map((item) => ({
+      ...item,
+      recordType: "inspection",
+    }));
+
+    // Combine and sort by newest first
+    const allActivities = [...taggedPurchases, ...taggedInspections];
+    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.json({
+      success: true,
+      count: allActivities.length,
+      activities: allActivities,
+    });
+  } catch (err) {
+    console.error("getUserPurchasesAndInspections error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+const getAgentTransactionsAndEscrows = async (req, res) => {
+  try {
+    const agentId = req.params.agentId || req.user._id;
+
+    // Fetch transactions and escrows in parallel using .lean()
+    const [transactions, escrows] = await Promise.all([
+      Transaction.find({
+        $or: [{ to: agentId }, { from: agentId }],
+      })
+        .populate("from", "name email")
+        .populate("to", "name email")
+        .lean(),
+
+      Escrow.find({ seller: agentId })
         .populate("property", "title price address")
         .populate("buyer", "name email")
         .populate("seller", "name email")
+        .lean(),
+    ]);
+
+    // Tag records
+    const taggedTransactions = transactions.map((item) => ({
+      ...item,
+      recordType: "transaction",
+    }));
+    const taggedEscrows = escrows.map((item) => ({
+      ...item,
+      recordType: "escrow",
+    }));
+
+    // Combine and sort by newest first
+    const allActivities = [...taggedTransactions, ...taggedEscrows];
+    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Calculate total earned from agent payment transactions
+    const agentPayments = transactions.filter(
+      (t) =>
+        t.to?.toString() === agentId.toString() && t.type === "agent_payment",
+    );
+    const totalEarned = agentPayments.reduce(
+      (sum, t) => sum + (t.amount || 0),
+      0,
+    );
+
+    return res.json({
+      success: true,
+      count: allActivities.length,
+      totalEarned,
+      activities: allActivities,
+    });
+  } catch (err) {
+    console.error("getAgentTransactionsAndEscrows error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+const getAgentPurchasesAndInspections = async (req, res) => {
+  try {
+    const agentId = req.params.agentId || req.user._id;
+
+    // Fetch purchases and inspections in parallel using .lean()
+    const [purchases, inspections] = await Promise.all([
+      Purchase.find({ seller: agentId })
+        .populate("property", "title price address")
+        .populate("buyer", "name email")
+        .populate("seller", "name email")
+        .lean(),
+
+      Inspection.find({ owner: agentId })
+        .populate("property", "title price address")
+        .populate("user", "name email")
+        .populate("owner", "name email")
+        .lean(),
+    ]);
+
+    // Tag records
+    const taggedPurchases = purchases.map((item) => ({
+      ...item,
+      recordType: "purchase",
+    }));
+    const taggedInspections = inspections.map((item) => ({
+      ...item,
+      recordType: "inspection",
+    }));
+
+    // Combine and sort by newest first
+    const allActivities = [...taggedPurchases, ...taggedInspections];
+    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.json({
+      success: true,
+      count: allActivities.length,
+      activities: allActivities,
+    });
+  } catch (err) {
+    console.error("getAgentPurchasesAndInspections error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+const getAllTransactionsAndEscrows = async (req, res) => {
+  try {
+    // Fetch transactions and escrows in parallel using .lean()
+    const [transactions, escrows] = await Promise.all([
+      Transaction.find()
+        .populate("from", "name email")
+        .populate("to", "name email")
         .lean(),
 
       Escrow.find()
@@ -576,33 +836,18 @@ const getAllTransactions = async (req, res) => {
         .lean(),
     ]);
 
-    // Tag each item with a recordType for frontend differentiation
+    // Tag records
     const taggedTransactions = transactions.map((item) => ({
       ...item,
       recordType: "transaction",
-    }));
-    const taggedInspections = inspections.map((item) => ({
-      ...item,
-      recordType: "inspection",
-    }));
-    const taggedPurchases = purchases.map((item) => ({
-      ...item,
-      recordType: "purchase",
     }));
     const taggedEscrows = escrows.map((item) => ({
       ...item,
       recordType: "escrow",
     }));
 
-    // Combine all arrays into one single list
-    const allActivities = [
-      ...taggedTransactions,
-      ...taggedInspections,
-      ...taggedPurchases,
-      ...taggedEscrows,
-    ];
-
-    // Sort everything globally by createdAt descending (newest first)
+    // Combine and sort by newest first
+    const allActivities = [...taggedTransactions, ...taggedEscrows];
     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.json({
@@ -611,7 +856,52 @@ const getAllTransactions = async (req, res) => {
       activities: allActivities,
     });
   } catch (err) {
-    console.error("getAllTransactions error:", err);
+    console.error("getAllTransactionsAndEscrows error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+const getAllPurchasesAndInspections = async (req, res) => {
+  try {
+    // Fetch purchases and inspections in parallel using .lean()
+    const [purchases, inspections] = await Promise.all([
+      Purchase.find()
+        .populate("property", "title price address")
+        .populate("buyer", "name email")
+        .populate("seller", "name email")
+        .lean(),
+
+      Inspection.find()
+        .populate("property", "title price address")
+        .populate("user", "name email")
+        .populate("owner", "name email")
+        .lean(),
+    ]);
+
+    // Tag records
+    const taggedPurchases = purchases.map((item) => ({
+      ...item,
+      recordType: "purchase",
+    }));
+    const taggedInspections = inspections.map((item) => ({
+      ...item,
+      recordType: "inspection",
+    }));
+
+    // Combine and sort by newest first
+    const allActivities = [...taggedPurchases, ...taggedInspections];
+    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.json({
+      success: true,
+      count: allActivities.length,
+      activities: allActivities,
+    });
+  } catch (err) {
+    console.error("getAllPurchasesAndInspections error:", err);
     return res.status(500).json({
       success: false,
       message: err.message,
@@ -709,8 +999,11 @@ module.exports = {
   verifyWalletFunding,
   payAgent,
   changeTransactionStatus,
-  getUserTransactions,
-  getAgentTransactions,
-  getAllTransactions,
+  getUserTransactionsAndEscrows,
+  getAgentTransactionsAndEscrows,
+  getAllTransactionsAndEscrows,
+  getUserPurchasesAndInspections,
+  getAgentPurchasesAndInspections,
+  getAllPurchasesAndInspections,
   requestWithdrawal,
 };

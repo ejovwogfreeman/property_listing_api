@@ -7,9 +7,12 @@ const {
   verifyWalletFunding,
   payAgent,
   changeTransactionStatus,
-  getUserTransactions,
-  getAgentTransactions,
-  getAllTransactions,
+  getUserTransactionsAndEscrows,
+  getAgentTransactionsAndEscrows,
+  getAllTransactionsAndEscrows,
+  getUserPurchasesAndInspections,
+  getAgentPurchasesAndInspections,
+  getAllPurchasesAndInspections,
   requestWithdrawal,
 } = require("../controllers/transaction");
 const { protect, authorize } = require("../middlewares/auth");
@@ -43,14 +46,37 @@ router.post(
 );
 
 // Get User Transactions
-router.get("/user-transactions", protect, getUserTransactions);
+router.get(
+  "/user-transactions-activities",
+  protect,
+  getUserTransactionsAndEscrows,
+);
+
+// Get Agent Transactions
+router.get(
+  "/agent-transactions-activities",
+  protect,
+  authorize("admin"),
+  getAgentTransactionsAndEscrows,
+);
+
+// Get All Transactions
+router.get(
+  "/all-transactions-activities",
+  protect,
+  authorize("admin"),
+  getAllTransactionsAndEscrows,
+);
+
+// Get User Transactions
+router.get("/user-transactions", protect, getUserPurchasesAndInspections);
 
 // Get Agent Transactions
 router.get(
   "/agent-transactions",
   protect,
   authorize("admin"),
-  getAgentTransactions,
+  getAgentPurchasesAndInspections,
 );
 
 // Get All Transactions
@@ -58,10 +84,9 @@ router.get(
   "/all-transactions",
   protect,
   authorize("admin"),
-  getAllTransactions,
+  getAllPurchasesAndInspections,
 );
 
-// Get All Transactions
 router.post(
   "/withdraw",
   protect,
