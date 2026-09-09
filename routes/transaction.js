@@ -56,7 +56,7 @@ router.get(
 router.get(
   "/agent-transactions-activities",
   protect,
-  authorize("admin"),
+  authorize("agent"),
   getAgentTransactionsAndEscrows,
 );
 
@@ -75,7 +75,7 @@ router.get("/user-transactions", protect, getUserPurchasesAndInspections);
 router.get(
   "/agent-transactions",
   protect,
-  authorize("admin"),
+  authorize("agent"),
   getAgentPurchasesAndInspections,
 );
 
