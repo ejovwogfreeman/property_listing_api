@@ -319,8 +319,8 @@ const changeTransactionStatus = async (req, res) => {
 //     const transactions = await Transaction.find({
 //       $or: [{ from: userId }, { to: userId }],
 //     })
-//       .populate("from", "name email")
-//       .populate("to", "name email")
+//       .populate("from", "name email phoneNumber")
+//       .populate("to", "name email phoneNumber")
 //       .sort({ createdAt: -1 });
 
 //     return res.json({
@@ -346,26 +346,26 @@ const changeTransactionStatus = async (req, res) => {
 //       Transaction.find({
 //         $or: [{ from: userId }, { to: userId }],
 //       })
-//         .populate("from", "name email")
-//         .populate("to", "name email")
+//         .populate("from", "name email phoneNumber")
+//         .populate("to", "name email phoneNumber")
 //         .lean(),
 
 //       Inspection.find({ user: userId })
 //         .populate("property", "title price address")
-//         .populate("user", "name email")
-//         .populate("owner", "name email")
+//         .populate("user", "name email phoneNumber")
+//         .populate("owner", "name email phoneNumber")
 //         .lean(),
 
 //       Purchase.find({ buyer: userId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 
 //       Escrow.find({ buyer: userId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -420,8 +420,8 @@ const changeTransactionStatus = async (req, res) => {
 //       to: agentId,
 //       type: "agent_payment",
 //     })
-//       .populate("from", "name email")
-//       .populate("to", "name email")
+//       .populate("from", "name email phoneNumber")
+//       .populate("to", "name email phoneNumber")
 //       .sort({ createdAt: -1 });
 
 //     return res.json({
@@ -448,26 +448,26 @@ const changeTransactionStatus = async (req, res) => {
 //       Transaction.find({
 //         $or: [{ to: agentId }, { from: agentId }],
 //       })
-//         .populate("from", "name email")
-//         .populate("to", "name email")
+//         .populate("from", "name email phoneNumber")
+//         .populate("to", "name email phoneNumber")
 //         .lean(),
 
 //       Inspection.find({ owner: agentId })
 //         .populate("property", "title price address")
-//         .populate("user", "name email")
-//         .populate("owner", "name email")
+//         .populate("user", "name email phoneNumber")
+//         .populate("owner", "name email phoneNumber")
 //         .lean(),
 
 //       Purchase.find({ seller: agentId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 
 //       Escrow.find({ seller: agentId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -528,8 +528,8 @@ const changeTransactionStatus = async (req, res) => {
 // const getAllTransactions = async (req, res) => {
 //   try {
 //     const transactions = await Transaction.find()
-//       .populate("from", "name email")
-//       .populate("to", "name email")
+//       .populate("from", "name email phoneNumber")
+//       .populate("to", "name email phoneNumber")
 //       .sort({ createdAt: -1 });
 
 //     return res.json({
@@ -553,26 +553,26 @@ const changeTransactionStatus = async (req, res) => {
 //     // Fetch all records in parallel using .lean() for performance
 //     const [transactions, inspections, purchases, escrows] = await Promise.all([
 //       Transaction.find()
-//         .populate("from", "name email")
-//         .populate("to", "name email")
+//         .populate("from", "name email phoneNumber")
+//         .populate("to", "name email phoneNumber")
 //         .lean(),
 
 //       Inspection.find()
 //         .populate("property", "title price address")
-//         .populate("user", "name email")
-//         .populate("owner", "name email")
+//         .populate("user", "name email phoneNumber")
+//         .populate("owner", "name email phoneNumber")
 //         .lean(),
 
 //       Purchase.find()
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 
 //       Escrow.find()
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -628,14 +628,14 @@ const changeTransactionStatus = async (req, res) => {
 //       Transaction.find({
 //         $or: [{ from: userId }, { to: userId }],
 //       })
-//         .populate("from", "name email")
-//         .populate("to", "name email")
+//         .populate("from", "name email phoneNumber")
+//         .populate("to", "name email phoneNumber")
 //         .lean(),
 
 //       Escrow.find({ buyer: userId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -675,14 +675,14 @@ const changeTransactionStatus = async (req, res) => {
 //     const [purchases, inspections] = await Promise.all([
 //       Purchase.find({ buyer: userId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 
 //       Inspection.find({ user: userId })
 //         .populate("property", "title price address")
-//         .populate("user", "name email")
-//         .populate("owner", "name email")
+//         .populate("user", "name email phoneNumber")
+//         .populate("owner", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -723,14 +723,14 @@ const changeTransactionStatus = async (req, res) => {
 //       Transaction.find({
 //         $or: [{ to: agentId }, { from: agentId }],
 //       })
-//         .populate("from", "name email")
-//         .populate("to", "name email")
+//         .populate("from", "name email phoneNumber")
+//         .populate("to", "name email phoneNumber")
 //         .lean(),
 
 //       Escrow.find({ seller: agentId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -781,14 +781,14 @@ const changeTransactionStatus = async (req, res) => {
 //     const [purchases, inspections] = await Promise.all([
 //       Purchase.find({ seller: agentId })
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 
 //       Inspection.find({ owner: agentId })
 //         .populate("property", "title price address")
-//         .populate("user", "name email")
-//         .populate("owner", "name email")
+//         .populate("user", "name email phoneNumber")
+//         .populate("owner", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -825,14 +825,14 @@ const changeTransactionStatus = async (req, res) => {
 //     // Fetch transactions and escrows in parallel using .lean()
 //     const [transactions, escrows] = await Promise.all([
 //       Transaction.find()
-//         .populate("from", "name email")
-//         .populate("to", "name email")
+//         .populate("from", "name email phoneNumber")
+//         .populate("to", "name email phoneNumber")
 //         .lean(),
 
 //       Escrow.find()
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -870,14 +870,14 @@ const changeTransactionStatus = async (req, res) => {
 //     const [purchases, inspections] = await Promise.all([
 //       Purchase.find()
 //         .populate("property", "title price address")
-//         .populate("buyer", "name email")
-//         .populate("seller", "name email")
+//         .populate("buyer", "name email phoneNumber")
+//         .populate("seller", "name email phoneNumber")
 //         .lean(),
 
 //       Inspection.find()
 //         .populate("property", "title price address")
-//         .populate("user", "name email")
-//         .populate("owner", "name email")
+//         .populate("user", "name email phoneNumber")
+//         .populate("owner", "name email phoneNumber")
 //         .lean(),
 //     ]);
 
@@ -928,14 +928,14 @@ const getUserTransactionsAndEscrows = async (req, res) => {
       Transaction.find({
         $or: [{ from: userId }, { to: userId }],
       })
-        .populate("from", "name email")
-        .populate("to", "name email")
+        .populate("from", "name email phoneNumber")
+        .populate("to", "name email phoneNumber")
         .lean(),
 
       Escrow.find({ buyer: userId })
         .populate("property", "title price address images")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
+        .populate("buyer", "name email phoneNumber")
+        .populate("seller", "name email phoneNumber")
         .lean(),
     ]);
 
@@ -969,14 +969,14 @@ const getUserPurchasesAndInspections = async (req, res) => {
     const [purchases, inspections] = await Promise.all([
       Purchase.find({ buyer: userId })
         .populate("property", "title price address images")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
+        .populate("buyer", "name email phoneNumber")
+        .populate("seller", "name email phoneNumber")
         .lean(),
 
       Inspection.find({ user: userId })
         .populate("property", "title price address images")
-        .populate("user", "name email")
-        .populate("owner", "name email")
+        .populate("user", "name email phoneNumber")
+        .populate("owner", "name email phoneNumber")
         .lean(),
     ]);
 
@@ -1011,14 +1011,14 @@ const getAgentTransactionsAndEscrows = async (req, res) => {
       Transaction.find({
         $or: [{ to: agentId }, { from: agentId }],
       })
-        .populate("from", "name email")
-        .populate("to", "name email")
+        .populate("from", "name email phoneNumber")
+        .populate("to", "name email phoneNumber")
         .lean(),
 
       Escrow.find({ seller: agentId })
         .populate("property", "title price address images")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
+        .populate("buyer", "name email phoneNumber")
+        .populate("seller", "name email phoneNumber")
         .lean(),
     ]);
 
@@ -1062,14 +1062,14 @@ const getAgentPurchasesAndInspections = async (req, res) => {
     const [purchases, inspections] = await Promise.all([
       Purchase.find({ seller: agentId })
         .populate("property", "title price address images")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
+        .populate("buyer", "name email phoneNumber")
+        .populate("seller", "name email phoneNumber")
         .lean(),
 
       Inspection.find({ owner: agentId })
         .populate("property", "title price address images")
-        .populate("user", "name email")
-        .populate("owner", "name email")
+        .populate("user", "name email phoneNumber")
+        .populate("owner", "name email phoneNumber")
         .lean(),
     ]);
 
@@ -1100,14 +1100,14 @@ const getAllTransactionsAndEscrows = async (req, res) => {
   try {
     const [transactions, escrows] = await Promise.all([
       Transaction.find()
-        .populate("from", "name email")
-        .populate("to", "name email")
+        .populate("from", "name email phoneNumber")
+        .populate("to", "name email phoneNumber")
         .lean(),
 
       Escrow.find()
         .populate("property", "title price address images")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
+        .populate("buyer", "name email phoneNumber")
+        .populate("seller", "name email phoneNumber")
         .lean(),
     ]);
 
@@ -1139,14 +1139,14 @@ const getAllPurchasesAndInspections = async (req, res) => {
     const [purchases, inspections] = await Promise.all([
       Purchase.find()
         .populate("property", "title price address images")
-        .populate("buyer", "name email")
-        .populate("seller", "name email")
+        .populate("buyer", "name email phoneNumber")
+        .populate("seller", "name email phoneNumber")
         .lean(),
 
       Inspection.find()
         .populate("property", "title price address images")
-        .populate("user", "name email")
-        .populate("owner", "name email")
+        .populate("user", "name email phoneNumber")
+        .populate("owner", "name email phoneNumber")
         .lean(),
     ]);
 
