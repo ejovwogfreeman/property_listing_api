@@ -15,7 +15,6 @@ const PurchaseSchema = new Schema(
     // 🔑 Paystack reference
     reference: {
       type: String,
-      required: true,
       unique: true,
     },
     // code: { type: String }, // optional purchase code
