@@ -366,6 +366,7 @@ const rescheduleInspection = async (req, res) => {
     // Reset back to 'inspection_paid' so the agent knows to pick a new date
     inspection.status = "inspection_paid";
     inspection.scheduledDate = null;
+    inspection.scheduledAt = null;
     await inspection.save();
 
     if (inspection.owner) {
