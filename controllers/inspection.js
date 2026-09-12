@@ -123,6 +123,7 @@ const initializeInspectionPayment = async (req, res) => {
     const reference = crypto.randomBytes(16).toString("hex");
 
     inspection.status = "inspection_initialized";
+    inspection.initializedAt = new Date();
     await inspection.save();
 
     await Notification.create({
@@ -213,6 +214,7 @@ const verifyInspectionPayment = async (req, res) => {
     inspection.feePaid = true;
     inspection.escrowHeldBy = adminUser?._id;
     inspection.status = "inspection_paid";
+    inspection.paidAt = new Date();
     await inspection.save();
 
     await Notification.create({
@@ -303,6 +305,7 @@ const scheduleInspection = async (req, res) => {
 
     inspection.scheduledDate = scheduledDate;
     inspection.status = "inspection_scheduled";
+    inspection.scheduledAt = new Date();
     await inspection.save();
 
     await Notification.create({
@@ -429,6 +432,7 @@ const confirmInspection = async (req, res) => {
     }
 
     inspection.status = "inspection_confirmed";
+    inspection.confirmedAt = new Date();
     await inspection.save();
 
     let escrow = await Escrow.findOne({
@@ -499,6 +503,7 @@ const completeInspection = async (req, res) => {
     }
 
     inspection.status = "inspection_completed";
+    inspection.completedAt = new Date();
     await inspection.save();
 
     const adminUser = await User.findOne({ role: "admin" });

@@ -26,6 +26,11 @@ const InspectionSchema = new Schema(
     feePaid: { type: Boolean, default: false },
     feeReleased: { type: Boolean, default: false }, // add this
     scheduledDate: { type: Date, default: Date.now },
+    initializedAt: { type: Date },
+    paidAt: { type: Date },
+    scheduledAt: { type: Date },
+    confirmedAt: { type: Date },
+    completedAt: { type: Date },
   },
   { timestamps: true },
 );
