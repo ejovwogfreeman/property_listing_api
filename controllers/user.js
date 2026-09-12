@@ -146,6 +146,7 @@ const onboardAgent = async (req, res) => {
   try {
     const userId = req.user._id;
     const {
+      phoneNumber,
       about,
       yearsOfExperience,
       serviceArea,

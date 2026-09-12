@@ -1,6 +1,8 @@
 const Escrow = require("../models/escrow");
 const User = require("../models/user");
 const Notification = require("../models/notification");
+const Inspection = require("../models/inspection");
+const Purchase = require("../models/purchase");
 
 // ---------------------------
 // Get All Escrows (Admin Only)
@@ -120,7 +122,7 @@ const changeEscrowStatus = async (req, res) => {
 
     const previousStatus = escrow.status;
 
-    // 💰 If status is changing TO "released" (and wasn't already released), credit the seller/agent wallet
+    // 💰 If status is changing TO "released" (and wasn't already released)
     if (status === "released" && previousStatus !== "released") {
       const seller = await User.findById(escrow.seller);
       if (!seller) {
@@ -129,6 +131,7 @@ const changeEscrowStatus = async (req, res) => {
           .json({ success: false, message: "Seller/Agent not found" });
       }
 
+      // Credit seller wallet
       seller.balance += escrow.amount;
       await seller.save();
 
@@ -139,18 +142,59 @@ const changeEscrowStatus = async (req, res) => {
         message: `₦${escrow.amount} from escrow has been released and added to your wallet balance.`,
         meta: { escrowId: escrow._id },
       });
+
+      // 🔍 Find and update the related Inspection or Purchase feeReleased status
+      if (escrow.type === "inspection") {
+        const inspection = await Inspection.findOne({
+          property: escrow.property,
+          user: escrow.buyer,
+        });
+        if (inspection) {
+          inspection.feeReleased = true;
+          await inspection.save();
+        }
+      } else if (escrow.type === "purchase") {
+        const purchase = await Purchase.findOne({
+          property: escrow.property,
+          buyer: escrow.buyer,
+        });
+        if (purchase) {
+          purchase.feeReleased = true;
+          await purchase.save();
+        }
+      }
     }
 
-    // 🔄 Reverse safety: If it was released and admin changes it back to pending/cancelled, reverse the balance
+    // 🔄 Reverse safety: If it was released and admin changes it back, reverse balance & feeReleased
     if (previousStatus === "released" && status !== "released") {
       const seller = await User.findById(escrow.seller);
       if (seller) {
         seller.balance -= escrow.amount;
         await seller.save();
       }
+
+      if (escrow.type === "inspection") {
+        const inspection = await Inspection.findOne({
+          property: escrow.property,
+          user: escrow.buyer,
+        });
+        if (inspection) {
+          inspection.feeReleased = false;
+          await inspection.save();
+        }
+      } else if (escrow.type === "purchase") {
+        const purchase = await Purchase.findOne({
+          property: escrow.property,
+          buyer: escrow.buyer,
+        });
+        if (purchase) {
+          purchase.feeReleased = false;
+          await purchase.save();
+        }
+      }
     }
 
-    // Update status
+    // Update escrow status
     escrow.status = status;
     await escrow.save();
 
@@ -171,3 +215,4 @@ module.exports = {
   getAgentEscrows,
   changeEscrowStatus,
 };
+s;
