@@ -619,7 +619,7 @@ const getInspectionDetails = async (req, res) => {
     const { inspectionId } = req.params;
 
     const inspection = await Inspection.findById(inspectionId)
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("owner", "name email phoneNumber")
       .populate("user", "name email phoneNumber")
       .populate("escrowHeldBy", "name email phoneNumber");
