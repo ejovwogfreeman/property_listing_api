@@ -95,6 +95,7 @@ const initializePurchasePayment = async (req, res) => {
 
     // Generate Paystack reference
     const reference = crypto.randomBytes(16).toString("hex");
+    purchase.reference = reference;
 
     // Initialize Paystack
     const init = await initializeTransaction(

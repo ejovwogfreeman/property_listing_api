@@ -22,6 +22,12 @@ const InspectionSchema = new Schema(
       default: "none",
     },
     fee: { type: Number, required: true },
+    // 🔑 Paystack reference
+    reference: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin
     feePaid: { type: Boolean, default: false },
     feeReleased: { type: Boolean, default: false }, // add this

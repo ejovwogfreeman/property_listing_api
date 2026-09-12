@@ -970,7 +970,7 @@ const getUserPurchasesAndInspections = async (req, res) => {
       Purchase.find({ buyer: userId })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber")
-        .populate("seller", "name email phoneNumber")
+        .populate("owner", "name email phoneNumber")
         .lean(),
 
       Inspection.find({ user: userId })
@@ -1063,7 +1063,7 @@ const getAgentPurchasesAndInspections = async (req, res) => {
       Purchase.find({ seller: agentId })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber")
-        .populate("seller", "name email phoneNumber")
+        .populate("owner", "name email phoneNumber")
         .lean(),
 
       Inspection.find({ owner: agentId })
@@ -1140,7 +1140,7 @@ const getAllPurchasesAndInspections = async (req, res) => {
       Purchase.find()
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber")
-        .populate("seller", "name email phoneNumber")
+        .populate("owner", "name email phoneNumber")
         .lean(),
 
       Inspection.find()

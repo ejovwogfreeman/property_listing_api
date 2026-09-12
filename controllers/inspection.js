@@ -123,6 +123,7 @@ const initializeInspectionPayment = async (req, res) => {
     const reference = crypto.randomBytes(16).toString("hex");
 
     inspection.status = "inspection_initialized";
+    inspection.reference = reference;
     inspection.initializedAt = new Date();
     await inspection.save();
 

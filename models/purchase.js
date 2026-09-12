@@ -12,6 +12,12 @@ const PurchaseSchema = new Schema(
       required: true,
     },
     price: { type: Number, required: true },
+    // 🔑 Paystack reference
+    reference: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     // code: { type: String }, // optional purchase code
     feePaid: { type: Boolean, default: false }, // buyer has paid
     feeReleased: { type: Boolean, default: false }, // payment released to owner
