@@ -173,11 +173,12 @@ const onboardAgent = async (req, res) => {
       ? await uploadImages(req.files.governmentId)
       : [];
 
-    const licenseDocUrls = req.files?.licenseDoc
+    const licenseDocUrls = req.files?.licenseDocf
       ? await uploadImages(req.files.licenseDoc)
       : [];
 
     // Update text fields if provided
+    if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
     if (about !== undefined) user.about = about;
     if (yearsOfExperience !== undefined)
       user.yearsOfExperience = yearsOfExperience;
