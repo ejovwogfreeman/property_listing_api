@@ -27,7 +27,7 @@ const requestPurchase = async (req, res) => {
     const inspection = await Inspection.findOne({
       property: propertyId,
       user: buyerId,
-      status: "inspection_confirmed", // or "verified" based on your inspection enum
+      status: "inspection_confirmed",
       feePaid: true,
     });
     if (!inspection)
@@ -96,6 +96,8 @@ const initializePurchasePayment = async (req, res) => {
     // Generate Paystack reference
     const reference = crypto.randomBytes(16).toString("hex");
     purchase.reference = reference;
+    purrchase.initializedAt = new Date();
+    await purchase.save();
 
     // Initialize Paystack
     const init = await initializeTransaction(
@@ -104,10 +106,6 @@ const initializePurchasePayment = async (req, res) => {
       reference,
       callback_url,
     );
-
-    // ------------------------------
-    // NOTIFICATIONS (Escrow is NOT created here anymore)
-    // ------------------------------
 
     // Notify Buyer
     await Notification.create({
@@ -119,7 +117,7 @@ const initializePurchasePayment = async (req, res) => {
 
     // Notify Seller
     await Notification.create({
-      user: purchase.owner,
+      user: purchase.owner._id || purchase.owner,
       title: "Purchase Payment Started",
       message: `A buyer has initiated payment for your property.`,
       meta: { purchaseId },
@@ -136,9 +134,6 @@ const initializePurchasePayment = async (req, res) => {
       });
     }
 
-    // ------------------------------
-    // SOCKET EVENTS
-    // ------------------------------
     if (global.io) {
       global.io.emit("notification", {
         type: "purchase_payment_initialized",
@@ -148,9 +143,6 @@ const initializePurchasePayment = async (req, res) => {
       });
     }
 
-    // ------------------------------
-    // RESPONSE
-    // ------------------------------
     res.json({
       success: true,
       message: "Purchase payment initialized",
@@ -174,7 +166,7 @@ const verifyPurchasePayment = async (req, res) => {
 
     // Verify Paystack transaction
     const verification = await verifyTransaction(reference);
-    if (verification.data.status !== "success")
+    if (!verification || verification.data.status !== "success")
       return res.status(400).json({ message: "Payment not successful" });
 
     // Find purchase
@@ -185,35 +177,28 @@ const verifyPurchasePayment = async (req, res) => {
     // Get admin
     const adminUser = await User.findOne({ role: "admin" });
 
-    // ------------------------------
-    // CREATE ESCROW ONLY UPON SUCCESSFUL PAYMENT VERIFICATION
-    // ------------------------------
+    // CREATE ESCROW UPON SUCCESSFUL PAYMENT VERIFICATION
     let escrow = await Escrow.findOne({ reference });
     if (!escrow) {
       escrow = await Escrow.create({
         reference: reference,
         property: purchase.property,
         buyer: purchase.buyer,
-        seller: purchase.owner._id,
+        seller: purchase.owner._id || purchase.owner,
         amount: purchase.price,
-        status: "pending", // Always pending for admin review/management later
-        type: "purchase", // or "property_purchase" depending on your escrow schema enum
+        status: "pending",
+        type: "purchase",
       });
     }
 
-    // ------------------------------
-    // UPDATE PURCHASE (Using enum "property_payment_made")
-    // ------------------------------
+    // UPDATE PURCHASE & STAMP paidAt
     purchase.feePaid = true;
     purchase.escrowHeldBy = adminUser ? adminUser._id : null;
-    purchase.status = "property_payment_made"; // 👈 Matches your PurchaseSchema enum
+    purchase.status = "property_payment_made";
+    purchase.paidAt = new Date(); // 👈 Timestamp tracking
     await purchase.save();
 
-    // ------------------------------
     // NOTIFICATIONS
-    // ------------------------------
-
-    // Notify Buyer
     await Notification.create({
       user: purchase.buyer,
       title: "Purchase Payment Verified",
@@ -221,15 +206,13 @@ const verifyPurchasePayment = async (req, res) => {
       meta: { purchaseId, escrowId: escrow._id },
     });
 
-    // Notify Seller
     await Notification.create({
-      user: purchase.owner._id,
+      user: purchase.owner._id || purchase.owner,
       title: "Purchase Payment Held in Escrow",
       message: `Payment for your property is verified and pending review.`,
       meta: { purchaseId, escrowId: escrow._id },
     });
 
-    // Notify Admin
     if (adminUser) {
       await Notification.create({
         user: adminUser._id,
@@ -239,9 +222,6 @@ const verifyPurchasePayment = async (req, res) => {
       });
     }
 
-    // ------------------------------
-    // SOCKET EVENT
-    // ------------------------------
     if (global.io) {
       global.io.emit("notification", {
         type: "purchase_payment_verified",
@@ -252,9 +232,6 @@ const verifyPurchasePayment = async (req, res) => {
       });
     }
 
-    // ------------------------------
-    // RESPONSE
-    // ------------------------------
     res.json({
       success: true,
       message: "Payment verified successfully. Escrow created as pending.",
@@ -268,20 +245,306 @@ const verifyPurchasePayment = async (req, res) => {
 };
 
 // ---------------------------
-// 🔄 Change Purchase Status (Admin Only)
+// 4️⃣ Schedule Handover (Agent / Property Owner ONLY)
+// ---------------------------
+const schedulePurchaseHandover = async (req, res) => {
+  try {
+    const { purchaseId, scheduledDate } = req.body;
+    const userId = req.user._id;
+
+    const purchase = await Purchase.findById(purchaseId).populate("property");
+    if (!purchase) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+    }
+
+    const ownerId = purchase.owner?._id || purchase.owner;
+    const isOwner = ownerId && ownerId.toString() === userId.toString();
+    const isAgent =
+      purchase.property?.agent &&
+      purchase.property.agent.toString() === userId.toString();
+
+    if (!isOwner && !isAgent && req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Unauthorized. Only the property owner or agent can schedule a handover date.",
+      });
+    }
+
+    if (!purchase.feePaid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot schedule handover because the purchase payment has not been made yet.",
+      });
+    }
+
+    // Update status and timestamp depending on whether it's a first-time schedule or a re-schedule
+    const isReschedule = purchase.status === "handover_rescheduled";
+    purchase.scheduledDate = scheduledDate;
+    purchase.status = "handover_scheduled";
+    purchase.scheduledAt = new Date();
+    await purchase.save();
+
+    // Notify Buyer
+    await Notification.create({
+      user: purchase.buyer,
+      title: "Handover Date Scheduled",
+      message: `The agent has scheduled your property handover for "${purchase.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or request a reschedule if unsuitable.`,
+      meta: { purchaseId },
+    });
+
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "handover_scheduled",
+        title: "Handover Scheduled",
+        message: `A handover date has been set by the agent for "${purchase.property?.title}".`,
+        purchaseId,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Handover scheduled successfully. Buyer notified.",
+      purchase,
+    });
+  } catch (err) {
+    console.error("scheduleHandover error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 5️⃣ Reschedule / Reject Handover Date (User / Buyer)
+// ---------------------------
+const reschedulePurchaseHandover = async (req, res) => {
+  try {
+    const { purchaseId, reason } = req.body;
+    const userId = req.user._id;
+
+    const purchase = await Purchase.findById(purchaseId).populate("property");
+    if (!purchase) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+    }
+
+    if (purchase.buyer?.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    // Allow rescheduling if a handover is currently scheduled
+    if (purchase.status !== "handover_scheduled") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "You can only request a reschedule for a handover that has been scheduled.",
+      });
+    }
+
+    // Shift to handover_rescheduled enum status
+    purchase.status = "handover_rescheduled";
+    purchase.scheduledDate = null;
+    purchase.scheduledAt = null; // Clear out old schedule timestamp so a fresh one can be set
+    await purchase.save();
+
+    const sellerId = purchase.owner?._id || purchase.owner;
+    if (sellerId) {
+      await Notification.create({
+        user: sellerId,
+        title: "Handover Date Rejected / Reschedule Requested",
+        message: `The buyer rejected the scheduled handover date for "${purchase.property?.title}". Reason: ${reason || "Not suitable"}. Please pick a new date.`,
+        meta: { purchaseId },
+      });
+    }
+
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "handover_reschedule_requested",
+        title: "Handover Reschedule Requested",
+        message: `Buyer rejected the handover date for "${purchase.property?.title}".`,
+        purchaseId,
+      });
+    }
+
+    res.json({
+      success: true,
+      message:
+        "Handover date rejected. The agent has been notified to pick a new date.",
+      purchase,
+    });
+  } catch (err) {
+    console.error("rescheduleHandover error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 6️⃣ Confirm / Accept Handover (User / Buyer ONLY)
+// ---------------------------
+const confirmPurchaseHandover = async (req, res) => {
+  try {
+    const { purchaseId } = req.params;
+    const userId = req.user._id;
+
+    const purchase = await Purchase.findById(purchaseId).populate("property");
+    if (!purchase) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+    }
+
+    // Ensure only the buyer who requested it can confirm/accept the schedule
+    if (purchase.buyer?.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Unauthorized. Only the buyer can confirm this handover schedule.",
+      });
+    }
+
+    if (purchase.status !== "handover_scheduled") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Handover must be scheduled by the agent first before it can be confirmed.",
+      });
+    }
+
+    purchase.status = "handover_confirmed";
+    purchase.confirmedAt = new Date();
+    await purchase.save();
+
+    // Update associated escrow status to approved
+    let escrow = await Escrow.findOne({
+      property: purchase.property?._id,
+      buyer: purchase.buyer,
+      type: "purchase",
+    });
+    if (escrow) {
+      escrow.status = "approved";
+      await escrow.save();
+    }
+
+    const sellerId = purchase.owner?._id || purchase.owner;
+    if (sellerId) {
+      await Notification.create({
+        user: sellerId,
+        title: "Handover Confirmed by Buyer",
+        message: `The buyer has accepted and confirmed the handover schedule for "${purchase.property?.title}".`,
+        meta: { purchaseId },
+      });
+    }
+
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "handover_confirmed",
+        title: "Handover Confirmed",
+        message: `Handover confirmed by buyer for "${purchase.property?.title}".`,
+        purchaseId,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Handover schedule confirmed successfully.",
+      purchase,
+    });
+  } catch (err) {
+    console.error("confirmHandover error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 7️⃣ Mark Handover Completed (User / Buyer)
+// ---------------------------
+const completePurchaseHandover = async (req, res) => {
+  try {
+    const { purchaseId } = req.params;
+    const userId = req.user._id;
+
+    const purchase = await Purchase.findById(purchaseId).populate("property");
+    if (!purchase) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+    }
+
+    if (purchase.buyer?.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (purchase.status !== "handover_confirmed") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Handover must be confirmed first before it can be marked as completed.",
+      });
+    }
+
+    purchase.status = "handover_completed";
+    purchase.completedAt = new Date();
+    await purchase.save();
+
+    const adminUser = await User.findOne({ role: "admin" });
+
+    const sellerId = purchase.owner?._id || purchase.owner;
+    if (sellerId) {
+      await Notification.create({
+        user: sellerId,
+        title: "Handover Completed",
+        message: `The property handover for "${purchase.property?.title}" has been marked as completed by the buyer.`,
+        meta: { purchaseId },
+      });
+    }
+
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "Handover Completed - Review Escrow",
+        message: `Handover for "${purchase.property?.title}" is completed. Escrow funds can now be released.`,
+        meta: { purchaseId },
+      });
+    }
+
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "handover_completed",
+        title: "Handover Completed",
+        message: `Handover completed for "${purchase.property?.title}".`,
+        purchaseId,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Handover marked as completed successfully.",
+      purchase,
+    });
+  } catch (err) {
+    console.error("completeHandover error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 🔄 Change Purchase Status (Admin / Authorized Flow)
 // ---------------------------
 const changePurchaseStatus = async (req, res) => {
   try {
     const { purchaseId } = req.params;
     const { status } = req.body;
-    const adminId = req.user._id;
 
-    // Allowed status transitions from your Purchase Schema enum
+    // Allowed status transitions matching Purchase Model enum
     const allowedStatuses = [
       "none",
       "property_payment_made",
       "handover_requested",
       "handover_scheduled",
+      "handover_rescheduled",
       "handover_confirmed",
       "handover_completed",
       "funds_released",
@@ -294,7 +557,6 @@ const changePurchaseStatus = async (req, res) => {
       });
     }
 
-    // Find purchase and populate details
     const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase) {
       return res
@@ -302,30 +564,40 @@ const changePurchaseStatus = async (req, res) => {
         .json({ success: false, message: "Purchase not found" });
     }
 
-    // Update purchase status
+    // Update status and dynamically set corresponding timestamps
     purchase.status = status;
 
-    // Optional business logic: if funds are released, update flags
+    if (status === "property_payment_made" && !purchase.paidAt) {
+      purchase.paidAt = new Date();
+    } else if (
+      status === "handover_scheduled" ||
+      status === "handover_rescheduled"
+    ) {
+      purchase.scheduledAt = new Date();
+    } else if (status === "handover_confirmed") {
+      purchase.confirmedAt = new Date();
+    } else if (status === "handover_completed") {
+      purchase.completedAt = new Date();
+    }
+
+    // If funds are released, update flags and sync escrow status
     if (status === "funds_released") {
       purchase.feeReleased = true;
+      purchase.completedAt = purchase.completedAt || new Date();
 
-      // Also update related escrow to approved/released if you use an Escrow model
       const escrow = await Escrow.findOne({
         property: purchase.property,
         buyer: purchase.buyer,
         type: "purchase",
       });
       if (escrow) {
-        escrow.status = "released"; // or "approved" depending on your escrow schema
+        escrow.status = "released";
         await escrow.save();
       }
     }
 
     await purchase.save();
 
-    // ------------------------------
-    // NOTIFICATIONS
-    // ------------------------------
     const notificationMessage = `Your purchase status has been updated to: ${status.replace(/_/g, " ")}.`;
 
     // Notify Buyer
@@ -337,16 +609,16 @@ const changePurchaseStatus = async (req, res) => {
     });
 
     // Notify Seller/Owner
-    await Notification.create({
-      user: purchase.owner._id,
-      title: "Property Purchase Status Updated",
-      message: `The purchase status for your property has changed to: ${status.replace(/_/g, " ")}.`,
-      meta: { purchaseId, status },
-    });
+    const sellerId = purchase.owner?._id || purchase.owner;
+    if (sellerId) {
+      await Notification.create({
+        user: sellerId,
+        title: "Property Purchase Status Updated",
+        message: `The purchase status for your property has changed to: ${status.replace(/_/g, " ")}.`,
+        meta: { purchaseId, status },
+      });
+    }
 
-    // ------------------------------
-    // SOCKET EVENT
-    // ------------------------------
     if (global.io) {
       global.io.emit("notification", {
         type: "purchase_status_changed",
@@ -392,9 +664,7 @@ const getPurchaseDetails = async (req, res) => {
   }
 };
 
-// ---------------------------
 // Get All Purchases for Logged-in User
-// ---------------------------
 const getUserPurchases = async (req, res) => {
   try {
     const userId = req.params.id || req.user._id;
@@ -468,6 +738,10 @@ module.exports = {
   requestPurchase,
   initializePurchasePayment,
   verifyPurchasePayment,
+  schedulePurchaseHandover,
+  reschedulePurchaseHandover,
+  confirmPurchaseHandover,
+  completePurchaseHandover,
   changePurchaseStatus,
   getPurchaseDetails,
   getUserPurchases,
