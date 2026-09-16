@@ -27,7 +27,7 @@ const requestPurchase = async (req, res) => {
     const inspection = await Inspection.findOne({
       property: propertyId,
       user: buyerId,
-      status: "inspection_confirmed",
+      status: "inspection_completed",
       feePaid: true,
     });
     if (!inspection)
