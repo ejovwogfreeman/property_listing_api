@@ -157,7 +157,7 @@ const getProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id).populate(
       "owner",
-      "name email phoneNumber",
+      "name email phoneNumber profilePicture",
     );
     if (!prop)
       return res

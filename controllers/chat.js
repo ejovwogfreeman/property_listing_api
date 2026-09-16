@@ -82,7 +82,10 @@ const getUserChats = async (req, res) => {
     const chats = await Chat.find({
       participants: userId,
     })
-      .populate("participants", "username email profilePicture isVerified")
+      .populate(
+        "participants",
+        "username email phoneNumber profilePicture isVerified",
+      )
       .populate("property", "title price images")
       .populate({
         path: "lastMessage",
@@ -106,7 +109,10 @@ const getUserChats = async (req, res) => {
 const getAllChats = async (req, res) => {
   try {
     const chats = await Chat.find()
-      .populate("participants", "username email profilePicture isVerified")
+      .populate(
+        "participants",
+        "username email phoneNumber profilePicture isVerified",
+      )
       .populate("property", "title address")
       .populate({
         path: "lastMessage",
@@ -129,7 +135,10 @@ const getChatById = async (req, res) => {
     const userId = req.user._id;
 
     const chat = await Chat.findById(chatId)
-      .populate("participants", "username email profilePicture isVerified")
+      .populate(
+        "participants",
+        "username email phoneNumber profilePicture isVerified",
+      )
       .populate("property", "title price images")
       .populate({
         path: "lastMessage",

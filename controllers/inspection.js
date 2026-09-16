@@ -620,9 +620,9 @@ const getInspectionDetails = async (req, res) => {
 
     const inspection = await Inspection.findById(inspectionId)
       .populate("property", "title price address images")
-      .populate("owner", "name email phoneNumber")
-      .populate("user", "name email phoneNumber")
-      .populate("escrowHeldBy", "name email phoneNumber");
+      .populate("owner", "name email phoneNumber profilePicture")
+      .populate("user", "name email phoneNumber profilePicture")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture");
 
     if (!inspection)
       return res
@@ -645,8 +645,8 @@ const getUserInspections = async (req, res) => {
 
     const inspections = await Inspection.find({ user: userId })
       .populate("property", "title price address images")
-      .populate("owner", "name email phoneNumber")
-      .populate("escrowHeldBy", "name email phoneNumber")
+      .populate("owner", "name email phoneNumber profilePicture")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
     const formattedInspections = inspections.map((inspection) => {
@@ -678,9 +678,9 @@ const getAgentInspections = async (req, res) => {
 
     const inspections = await Inspection.find({ owner: agentId })
       .populate("property", "title price address images")
-      .populate("user", "name email phoneNumber")
-      .populate("owner", "name email phoneNumber")
-      .populate("escrowHeldBy", "name email phoneNumber")
+      .populate("user", "name email phoneNumber profilePicture")
+      .populate("owner", "name email phoneNumber profilePicture")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
     // Map through inspections to extract the first image of the property
@@ -713,9 +713,9 @@ const getAllInspections = async (req, res) => {
   try {
     const inspections = await Inspection.find()
       .populate("property", "title price address images")
-      .populate("user", "name email phoneNumber")
-      .populate("owner", "name email phoneNumber")
-      .populate("escrowHeldBy", "name email phoneNumber")
+      .populate("user", "name email phoneNumber profilePicture")
+      .populate("owner", "name email phoneNumber profilePicture")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
     const formattedInspections = inspections.map((inspection) => {

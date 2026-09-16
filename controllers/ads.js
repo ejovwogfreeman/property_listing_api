@@ -174,7 +174,7 @@ const getAds = async (req, res) => {
 
     const ads = await Ad.find(query)
       .populate("property")
-      .populate("user", "name email profilePicture");
+      .populate("user", "name email phoneNumber profilePicture");
 
     res.status(200).json({
       success: true,
@@ -197,7 +197,7 @@ const getAd = async (req, res) => {
   try {
     const ad = await Ad.findById(req.params.id)
       .populate("property")
-      .populate("user", "name email profilePicture");
+      .populate("user", "name email phoneNumber profilePicture");
 
     if (!ad) {
       return res.status(404).json({ success: false, message: "Ad not found" });

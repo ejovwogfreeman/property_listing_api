@@ -96,7 +96,7 @@ const initializePurchasePayment = async (req, res) => {
     // Generate Paystack reference
     const reference = crypto.randomBytes(16).toString("hex");
     purchase.reference = reference;
-    purrchase.initializedAt = new Date();
+    purchase.initializedAt = new Date();
     await purchase.save();
 
     // Initialize Paystack
@@ -649,10 +649,10 @@ const getPurchaseDetails = async (req, res) => {
 
     const purchase = await Purchase.findById(purchaseId)
       .populate("property", "title price address")
-      .populate("buyer", "name email phoneNumber")
-      .populate("owner", "name email phoneNumber")
+      .populate("buyer", "name email phoneNumber profilePicture")
+      .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
-      .populate("escrowHeldBy", "name email phoneNumber");
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture");
 
     if (!purchase)
       return res.status(404).json({ message: "Purchase not found" });
@@ -671,9 +671,9 @@ const getUserPurchases = async (req, res) => {
 
     const purchases = await Purchase.find({ buyer: userId })
       .populate("property", "title price address")
-      .populate("owner", "name email phoneNumber")
+      .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
-      .populate("escrowHeldBy", "name email phoneNumber")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
     res.json({ success: true, purchases });
@@ -696,10 +696,10 @@ const getAgentPurchases = async (req, res) => {
 
     const purchases = await Purchase.find({ property: { $in: propertyIds } })
       .populate("property", "title price address")
-      .populate("buyer", "name email phoneNumber")
-      .populate("owner", "name email phoneNumber")
+      .populate("buyer", "name email phoneNumber profilePicture")
+      .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
-      .populate("escrowHeldBy", "name email phoneNumber")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
     res.json({
@@ -718,10 +718,10 @@ const getAllPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find()
       .populate("property", "title price address")
-      .populate("buyer", "name email phoneNumber")
-      .populate("owner", "name email phoneNumber")
+      .populate("buyer", "name email phoneNumber profilePicture")
+      .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
-      .populate("escrowHeldBy", "name email phoneNumber")
+      .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
     res.json({
