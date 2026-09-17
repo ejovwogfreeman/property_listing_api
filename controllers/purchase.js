@@ -16,43 +16,61 @@ const crypto = require("crypto");
 const requestPurchase = async (req, res) => {
   try {
     const { propertyId } = req.body;
-    const buyerId = req.user._id;
+    const userId = req.user._id;
 
     // Fetch property
     const property = await Property.findById(propertyId);
     if (!property)
-      return res.status(404).json({ message: "Property not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Property not found" });
 
-    // Check if user has completed inspection
+    // Check if user has completed inspection (Prerequisite)
     const inspection = await Inspection.findOne({
       property: propertyId,
-      user: buyerId,
+      user: userId,
       status: "inspection_completed",
       feePaid: true,
     });
     if (!inspection)
-      return res
-        .status(400)
-        .json({ message: "You must complete and pay for inspection first" });
+      return res.status(400).json({
+        success: false,
+        message: "You must complete and pay for inspection first",
+      });
 
-    // 🛑 CHECK IF A PURCHASE ALREADY EXISTS FOR THIS BUYER & PROPERTY
+    // Check for existing purchase request
     const existingPurchase = await Purchase.findOne({
       property: propertyId,
-      buyer: buyerId,
+      buyer: userId,
     });
 
     if (existingPurchase) {
+      // If fee is NOT paid yet, return the existing ID so the user can resume payment seamlessly
+      if (!existingPurchase.feePaid) {
+        return res.status(200).json({
+          success: true,
+          resumed: true,
+          message:
+            "Unpaid purchase request found. You can resume payment with this ID.",
+          purchaseId: existingPurchase._id,
+          status: existingPurchase.status,
+        });
+      }
+
+      // If already paid/processed, prevent duplicate requests
       return res.status(400).json({
         success: false,
-        message: "You have already requested a purchase for this property.",
+        message:
+          "An active or completed purchase for this property already exists.",
         purchaseId: existingPurchase._id,
+        status: existingPurchase.status,
       });
     }
 
     // Create purchase record (default status is "none")
     const purchase = await Purchase.create({
       property: property._id,
-      buyer: buyerId,
+      buyer: userId,
       owner: property.owner,
       inspection: inspection._id,
       price: property.price,
@@ -61,7 +79,7 @@ const requestPurchase = async (req, res) => {
 
     // Notify buyer
     await Notification.create({
-      user: buyerId,
+      user: userId,
       title: "Purchase Requested",
       message: `Purchase requested for "${property.title}".`,
       meta: { purchaseId: purchase._id },
@@ -79,7 +97,8 @@ const requestPurchase = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Purchase initiated. Proceed to payment.",
+      resumed: false,
+      message: "Purchase initiated successfully. Proceed to payment.",
       purchaseId: purchase._id,
     });
   } catch (err) {
