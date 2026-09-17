@@ -35,6 +35,20 @@ const requestPurchase = async (req, res) => {
         .status(400)
         .json({ message: "You must complete and pay for inspection first" });
 
+    // 🛑 CHECK IF A PURCHASE ALREADY EXISTS FOR THIS BUYER & PROPERTY
+    const existingPurchase = await Purchase.findOne({
+      property: propertyId,
+      buyer: buyerId,
+    });
+
+    if (existingPurchase) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already requested a purchase for this property.",
+        purchaseId: existingPurchase._id,
+      });
+    }
+
     // Create purchase record (default status is "none")
     const purchase = await Purchase.create({
       property: property._id,
