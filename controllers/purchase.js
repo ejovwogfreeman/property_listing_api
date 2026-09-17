@@ -681,7 +681,7 @@ const getPurchaseDetails = async (req, res) => {
     const { purchaseId } = req.params;
 
     const purchase = await Purchase.findById(purchaseId)
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
@@ -703,7 +703,7 @@ const getUserPurchases = async (req, res) => {
     const userId = req.params.id || req.user._id;
 
     const purchases = await Purchase.find({ buyer: userId })
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
@@ -728,7 +728,7 @@ const getAgentPurchases = async (req, res) => {
     const propertyIds = properties.map((p) => p._id);
 
     const purchases = await Purchase.find({ property: { $in: propertyIds } })
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
@@ -750,7 +750,7 @@ const getAgentPurchases = async (req, res) => {
 const getAllPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find()
-      .populate("property", "title price address")
+      .populate("property", "title price address images")
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("inspection")
