@@ -106,7 +106,7 @@ const changeEscrowStatus = async (req, res) => {
         .json({ success: false, message: "Escrow ID and status are required" });
     }
 
-    const allowedStatuses = ["pending", "approved", "released", "cancelled"];
+    const allowedStatuses = ["on_hold", "released"];
     if (!allowedStatuses.includes(status)) {
       return res
         .status(400)

@@ -684,7 +684,6 @@ const getPurchaseDetails = async (req, res) => {
       .populate("property", "title price address images")
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
-      .populate("inspection")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture");
 
     if (!purchase)
@@ -705,7 +704,6 @@ const getUserPurchases = async (req, res) => {
     const purchases = await Purchase.find({ buyer: userId })
       .populate("property", "title price address images")
       .populate("owner", "name email phoneNumber profilePicture")
-      .populate("inspection")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
@@ -731,7 +729,6 @@ const getAgentPurchases = async (req, res) => {
       .populate("property", "title price address images")
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
-      .populate("inspection")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
@@ -753,7 +750,6 @@ const getAllPurchases = async (req, res) => {
       .populate("property", "title price address images")
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
-      .populate("inspection")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 

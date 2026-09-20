@@ -1060,7 +1060,7 @@ const getAgentPurchasesAndInspections = async (req, res) => {
     const agentId = req.params.agentId || req.user._id;
 
     const [purchases, inspections] = await Promise.all([
-      Purchase.find({ seller: agentId })
+      Purchase.find({ owner: agentId })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
