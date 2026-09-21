@@ -10,6 +10,9 @@ const propertySchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    escrowFee: {
+      type: Number,
+    },
     address: {
       type: String,
       required: true,
