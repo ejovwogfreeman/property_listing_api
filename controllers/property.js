@@ -216,6 +216,7 @@ const updateProperty = async (req, res) => {
       title,
       description,
       price,
+      escrowFee,
       address,
       propertyType,
       listingType,
@@ -236,6 +237,7 @@ const updateProperty = async (req, res) => {
     if (title !== undefined) prop.title = title;
     if (description !== undefined) prop.description = description;
     if (price !== undefined) prop.price = price;
+    if (escrowFee !== undefined) prop.escrowFee = escrowFee;
     if (address !== undefined) prop.address = address;
     if (propertyType !== undefined) prop.propertyType = propertyType;
     if (listingType !== undefined) prop.listingType = listingType;
