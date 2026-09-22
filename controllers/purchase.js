@@ -73,7 +73,7 @@ const requestPurchase = async (req, res) => {
       buyer: userId,
       owner: property.owner,
       inspection: inspection._id,
-      price: property.price + property.escrowFee + property.servicveCharge,
+      price: property.price + property.escrowFee + property.serviceCharge,
       status: "none",
     });
 
