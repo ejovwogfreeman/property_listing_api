@@ -73,7 +73,7 @@ const requestPurchase = async (req, res) => {
       buyer: userId,
       owner: property.owner,
       inspection: inspection._id,
-      price: property.price,
+      price: property.price + property.escrowFee + property.servicveCharge,
       status: "none",
     });
 
@@ -681,7 +681,10 @@ const getPurchaseDetails = async (req, res) => {
     const { purchaseId } = req.params;
 
     const purchase = await Purchase.findById(purchaseId)
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge address images",
+      )
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture");
@@ -702,7 +705,10 @@ const getUserPurchases = async (req, res) => {
     const userId = req.params.id || req.user._id;
 
     const purchases = await Purchase.find({ buyer: userId })
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge address images",
+      )
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
@@ -726,7 +732,10 @@ const getAgentPurchases = async (req, res) => {
     const propertyIds = properties.map((p) => p._id);
 
     const purchases = await Purchase.find({ property: { $in: propertyIds } })
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge address images",
+      )
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
@@ -747,7 +756,10 @@ const getAgentPurchases = async (req, res) => {
 const getAllPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find()
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge address images",
+      )
       .populate("buyer", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
