@@ -27,6 +27,13 @@ const uploadOnboardingFiles = multer({
   { name: "licenseDoc", maxCount: 1 },
 ]);
 
+const uploadDisputeFiles = multer({
+  storage,
+}).fields([
+  { name: "images", maxCount: 10 },
+  { name: "documents", maxCount: 10 },
+]);
+
 // For routes that use FormData but DO NOT upload files
 const uploadNone = multer({ storage }).none();
 
@@ -35,5 +42,6 @@ module.exports = {
   uploadChatAttachments,
   uploadProfilePicture,
   uploadOnboardingFiles,
+  uploadDisputeFiles,
   uploadNone,
 };

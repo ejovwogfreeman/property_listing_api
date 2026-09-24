@@ -7,8 +7,14 @@ const Notification = require("../models/notification");
 // ---------------------------
 const createDispute = async (req, res) => {
   try {
-    const { propertyId, agentId, purchaseId, inspectionId, description } =
-      req.body;
+    const {
+      propertyId,
+      agentId,
+      purchaseId,
+      inspectionId,
+      description,
+      disputeFiles,
+    } = req.body;
     const userId = req.user._id;
 
     // Verify property exists
@@ -22,12 +28,10 @@ const createDispute = async (req, res) => {
     // Determine the defendant agent
     const targetAgentId = agentId || property.agent || property.owner;
     if (!targetAgentId) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Associated agent could not be determined for this dispute.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Associated agent could not be determined for this dispute.",
+      });
     }
 
     // Create the dispute
@@ -38,6 +42,7 @@ const createDispute = async (req, res) => {
       purchase: purchaseId || undefined,
       inspection: inspectionId || undefined,
       description,
+      disputeFiles: disputeFiles || [],
       openedAt: new Date(),
     });
 
@@ -66,7 +71,7 @@ const createDispute = async (req, res) => {
 const addDisputeMessage = async (req, res) => {
   try {
     const { disputeId } = req.params;
-    const { message } = req.body;
+    const { message, messageFiles } = req.body; // 📎 Accept messageFiles from request body
     const userId = req.user._id.toString();
     const userRole = req.user.role; // e.g., 'admin', 'user', 'agent'
 
@@ -95,10 +100,11 @@ const addDisputeMessage = async (req, res) => {
       dispute.admin = req.user._id;
     }
 
-    // Push the message into the embedded array
+    // Push the message along with any optional files into the embedded array
     dispute.messages.push({
       sender: req.user._id,
       message,
+      messageFiles: messageFiles || [],
     });
 
     await dispute.save();

@@ -24,6 +24,10 @@ const DisputeSchema = new Schema(
       trim: true,
       maxlength: [2000, "Description cannot exceed 2000 characters"],
     },
+    disputeFiles: {
+      type: [String],
+      default: [],
+    },
     messages: [MessageSchema], // 📩 Back-and-forth communication thread
     resolutionNotes: { type: String, trim: true }, // Admin notes on how it was solved
     resolvedBy: { type: Schema.Types.ObjectId, ref: "User" }, // Admin who finally resolved it

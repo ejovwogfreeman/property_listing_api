@@ -1,7 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
-const upload = multer(); // Handles multipart/form-data text fields
 const {
   createDispute,
   addDisputeMessage,
@@ -11,11 +9,11 @@ const {
   getAgentDisputes,
   getAllDisputes,
 } = require("../controllers/dispute");
-
 const { protect, authorize } = require("../middlewares/auth");
+const { uploadDisputeFiles, uploadNone } = require("../middlewares/upload");
 
 // 📌 User / Client Routes
-router.post("/", protect, upload.none(), createDispute);
+router.post("/", protect, uploadDisputeFiles, createDispute);
 router.get("/my-disputes", protect, getMyDisputes);
 
 // 📌 Agent Routes
@@ -27,12 +25,17 @@ router.put(
   "/:disputeId/status",
   protect,
   authorize("admin"),
-  upload.none(),
+  uploadNone,
   updateDisputeStatus,
 );
 
 // 📌 Shared / Thread Routes (Accessible by authorized User, Agent, or Admin)
 router.get("/:disputeId", protect, getDisputeDetails);
-router.post("/:disputeId/messages", protect, upload.none(), addDisputeMessage);
+router.post(
+  "/:disputeId/messages",
+  protect,
+  uploadDisputeFiles,
+  addDisputeMessage,
+);
 
 module.exports = router;
