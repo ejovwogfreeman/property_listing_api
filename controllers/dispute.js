@@ -1,23 +1,35 @@
-const Dispute = require("../models/dispute");
+const { Dispute, DisputeMessage } = require("../models/dispute");
 const Property = require("../models/property");
 const Notification = require("../models/notification");
+const { uploadImages } = require("../middlewares/cloudinary");
+
+// Helper function to extract and upload all files from req.files
+const extractAndUploadFiles = async (reqFiles) => {
+  if (!reqFiles) return [];
+  let filesToUpload = [];
+
+  if (Array.isArray(reqFiles)) {
+    filesToUpload = reqFiles;
+  } else {
+    Object.values(reqFiles).forEach((fileArr) => {
+      if (Array.isArray(fileArr)) {
+        filesToUpload.push(...fileArr);
+      }
+    });
+  }
+
+  return filesToUpload.length > 0 ? await uploadImages(filesToUpload) : [];
+};
 
 // ---------------------------
 // 1️⃣ Open a New Dispute (User/Client)
 // ---------------------------
 const createDispute = async (req, res) => {
   try {
-    const {
-      propertyId,
-      agentId,
-      purchaseId,
-      inspectionId,
-      description,
-      disputeFiles,
-    } = req.body;
+    const { propertyId, agentId, purchaseId, inspectionId, description } =
+      req.body;
     const userId = req.user._id;
 
-    // Verify property exists
     const property = await Property.findById(propertyId);
     if (!property) {
       return res
@@ -25,7 +37,6 @@ const createDispute = async (req, res) => {
         .json({ success: false, message: "Property not found" });
     }
 
-    // Determine the defendant agent
     const targetAgentId = agentId || property.agent || property.owner;
     if (!targetAgentId) {
       return res.status(400).json({
@@ -34,15 +45,17 @@ const createDispute = async (req, res) => {
       });
     }
 
-    // Create the dispute
+    // Process initial dispute ticket files
+    const disputeFiles = await extractAndUploadFiles(req.files);
+
     const dispute = await Dispute.create({
       property: propertyId,
-      user: userId, // The user opening it
-      agent: targetAgentId, // The agent being disputed
+      user: userId,
+      agent: targetAgentId,
       purchase: purchaseId || undefined,
       inspection: inspectionId || undefined,
       description,
-      disputeFiles: disputeFiles || [],
+      disputeFiles,
       openedAt: new Date(),
     });
 
@@ -71,9 +84,9 @@ const createDispute = async (req, res) => {
 const addDisputeMessage = async (req, res) => {
   try {
     const { disputeId } = req.params;
-    const { message, messageFiles } = req.body; // 📎 Accept messageFiles from request body
+    const { text, type } = req.body;
     const userId = req.user._id.toString();
-    const userRole = req.user.role; // e.g., 'admin', 'user', 'agent'
+    const userRole = req.user.role;
 
     const dispute = await Dispute.findById(disputeId);
     if (!dispute) {
@@ -95,19 +108,32 @@ const addDisputeMessage = async (req, res) => {
       });
     }
 
-    // If an admin is replying and no admin is assigned yet, auto-assign them
     if (isAdmin && !dispute.admin) {
       dispute.admin = req.user._id;
     }
 
-    // Push the message along with any optional files into the embedded array
-    dispute.messages.push({
-      sender: req.user._id,
-      message,
-      messageFiles: messageFiles || [],
-    });
+    // Process file attachments for the message
+    const attachments = await extractAndUploadFiles(req.files);
 
-    await dispute.save();
+    // Determine message type if not explicitly passed
+    let messageType = type || "text";
+    if (attachments.length > 0 && !text) {
+      messageType =
+        attachments.length === 1 &&
+        attachments[0].match(/\.(jpg|jpeg|png|webp|gif)$/i)
+          ? "image"
+          : "file";
+    }
+
+    // Create a standalone DisputeMessage document linked to this dispute
+    const newMessage = await DisputeMessage.create({
+      dispute: disputeId,
+      sender: req.user._id,
+      text: text || "",
+      attachments,
+      type: messageType,
+      readBy: [req.user._id], // Sender has read it
+    });
 
     // Determine who to notify
     let recipientIds = [];
@@ -128,15 +154,15 @@ const addDisputeMessage = async (req, res) => {
           user: recipientId,
           title: "New Message in Dispute Ticket",
           message: `There is a new message in your dispute thread.`,
-          meta: { disputeId: dispute._id },
+          meta: { disputeId: dispute._id, messageId: newMessage._id },
         });
       }
     }
 
-    res.json({
+    res.status(201).json({
       success: true,
       message: "Message sent successfully.",
-      dispute,
+      data: newMessage,
     });
   } catch (err) {
     console.error("addDisputeMessage error:", err);
@@ -167,17 +193,11 @@ const updateDisputeStatus = async (req, res) => {
       dispute.admin = req.user._id;
     }
 
-    // Smart Timeline Tracking
     const now = new Date();
-    if (status === "under_review" && !dispute.reviewedAt) {
+    if (status === "under_review" && !dispute.reviewedAt)
       dispute.reviewedAt = now;
-    }
-    if (status === "resolved" && !dispute.resolvedAt) {
-      dispute.resolvedAt = now;
-    }
-    if (status === "closed" && !dispute.closedAt) {
-      dispute.closedAt = now;
-    }
+    if (status === "resolved" && !dispute.resolvedAt) dispute.resolvedAt = now;
+    if (status === "closed" && !dispute.closedAt) dispute.closedAt = now;
 
     await dispute.save();
 
@@ -204,7 +224,7 @@ const updateDisputeStatus = async (req, res) => {
 };
 
 // ---------------------------
-// 4️⃣ Get Single Dispute Details
+// 4️⃣ Get Single Dispute Details (Includes fetching messages)
 // ---------------------------
 const getDisputeDetails = async (req, res) => {
   try {
@@ -214,8 +234,7 @@ const getDisputeDetails = async (req, res) => {
       .populate("property", "title images price location")
       .populate("user", "name email phone")
       .populate("agent", "name email phone")
-      .populate("admin", "name email")
-      .populate("messages.sender", "name email role");
+      .populate("admin", "name email");
 
     if (!dispute) {
       return res
@@ -223,9 +242,15 @@ const getDisputeDetails = async (req, res) => {
         .json({ success: false, message: "Dispute not found" });
     }
 
+    // Fetch associated messages separately using the separate DisputeMessage model with timestamps
+    const messages = await DisputeMessage.find({ dispute: disputeId })
+      .populate("sender", "name email role")
+      .sort({ createdAt: 1 });
+
     res.json({
       success: true,
       dispute,
+      messages,
     });
   } catch (err) {
     console.error("getDisputeDetails error:", err);
@@ -239,17 +264,12 @@ const getDisputeDetails = async (req, res) => {
 const getMyDisputes = async (req, res) => {
   try {
     const userId = req.user._id;
-
     const disputes = await Dispute.find({ user: userId })
       .populate("property", "title images location price")
       .populate("agent", "name email phone")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      count: disputes.length,
-      disputes,
-    });
+    res.status(200).json({ success: true, count: disputes.length, disputes });
   } catch (err) {
     console.error("getMyDisputes error:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -262,17 +282,12 @@ const getMyDisputes = async (req, res) => {
 const getAgentDisputes = async (req, res) => {
   try {
     const agentId = req.user._id;
-
     const disputes = await Dispute.find({ agent: agentId })
       .populate("property", "title images location price")
       .populate("user", "name email phone")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      count: disputes.length,
-      disputes,
-    });
+    res.status(200).json({ success: true, count: disputes.length, disputes });
   } catch (err) {
     console.error("getAgentDisputes error:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -285,7 +300,6 @@ const getAgentDisputes = async (req, res) => {
 const getAllDisputes = async (req, res) => {
   try {
     const { status, adminId } = req.query;
-
     let filter = {};
     if (status) filter.status = status;
     if (adminId) filter.admin = adminId;
@@ -297,11 +311,7 @@ const getAllDisputes = async (req, res) => {
       .populate("admin", "name email")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      success: true,
-      count: disputes.length,
-      disputes,
-    });
+    res.status(200).json({ success: true, count: disputes.length, disputes });
   } catch (err) {
     console.error("getAllDisputes error:", err);
     res.status(500).json({ success: false, message: err.message });
