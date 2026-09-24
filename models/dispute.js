@@ -20,7 +20,7 @@ const DisputeMessageSchema = new Schema(
       type: String,
       trim: true,
     },
-    attachments: [{ type: String }], // Unified array for images or documents
+    attachments: [{ type: String }],
     type: {
       type: String,
       enum: ["text", "image", "file"],
@@ -28,10 +28,9 @@ const DisputeMessageSchema = new Schema(
     },
     readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
-  { timestamps: true }, // Automatic timestamps for every message
+  { timestamps: true },
 );
 
-// Prevent empty messages (must have text or attachments)
 DisputeMessageSchema.pre("validate", function (next) {
   if (!this.text && (!this.attachments || this.attachments.length === 0)) {
     return next(new Error("Message cannot be empty"));
@@ -50,19 +49,37 @@ const DisputeMessage =
 // -------------------------------------------
 const DisputeSchema = new Schema(
   {
+    referenceId: {
+      type: String,
+      unique: true,
+      required: true,
+      default: () => `DSP-${Math.floor(100000 + Math.random() * 900000)}`,
+    },
     property: { type: Schema.Types.ObjectId, ref: "Property", required: true },
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true }, // Client opening it
-    agent: { type: Schema.Types.ObjectId, ref: "User", required: true }, // Agent being disputed
-    admin: { type: Schema.Types.ObjectId, ref: "User" }, // Assigned admin
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    agent: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    admin: { type: Schema.Types.ObjectId, ref: "User" },
     purchase: { type: Schema.Types.ObjectId, ref: "Purchase" },
     inspection: { type: Schema.Types.ObjectId, ref: "Inspection" },
+    category: {
+      type: String,
+      required: [true, "Dispute category is required"],
+      enum: [
+        "refund_request",
+        "property_mismatch",
+        "agent_misconduct",
+        "payment_issue",
+        "other",
+      ],
+      default: "other",
+    },
     description: {
       type: String,
       required: [true, "Dispute description is required"],
       trim: true,
       maxlength: [2000, "Description cannot exceed 2000 characters"],
     },
-    disputeFiles: [{ type: String }], // Initial ticket files/images
+    disputeFiles: [{ type: String }],
     resolutionNotes: { type: String, trim: true },
     resolvedBy: { type: Schema.Types.ObjectId, ref: "User" },
     status: {
@@ -81,7 +98,6 @@ const DisputeSchema = new Schema(
 const Dispute =
   mongoose.models.Dispute || mongoose.model("Dispute", DisputeSchema);
 
-// Export both models from this single file
 module.exports = {
   Dispute,
   DisputeMessage,

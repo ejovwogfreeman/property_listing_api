@@ -3,7 +3,7 @@ const Property = require("../models/property");
 const Notification = require("../models/notification");
 const { uploadImages } = require("../middlewares/cloudinary");
 
-// Helper function to extract and upload all files from req.files
+// Robust helper to capture files regardless of multer configuration keys
 const extractAndUploadFiles = async (reqFiles) => {
   if (!reqFiles) return [];
   let filesToUpload = [];
@@ -22,12 +22,18 @@ const extractAndUploadFiles = async (reqFiles) => {
 };
 
 // ---------------------------
-// 1️⃣ Open a New Dispute (User/Client)
+// 1️⃣ Open a New Dispute
 // ---------------------------
 const createDispute = async (req, res) => {
   try {
-    const { propertyId, agentId, purchaseId, inspectionId, description } =
-      req.body;
+    const {
+      propertyId,
+      agentId,
+      purchaseId,
+      inspectionId,
+      category,
+      description,
+    } = req.body;
     const userId = req.user._id;
 
     const property = await Property.findById(propertyId);
@@ -45,7 +51,7 @@ const createDispute = async (req, res) => {
       });
     }
 
-    // Process initial dispute ticket files
+    // 🛠️ Fixed: Properly processes multer files from req.files instead of req.body
     const disputeFiles = await extractAndUploadFiles(req.files);
 
     const dispute = await Dispute.create({
@@ -54,16 +60,16 @@ const createDispute = async (req, res) => {
       agent: targetAgentId,
       purchase: purchaseId || undefined,
       inspection: inspectionId || undefined,
+      category: category || "other",
       description,
       disputeFiles,
       openedAt: new Date(),
     });
 
-    // Notify the Agent
     await Notification.create({
       user: targetAgentId,
       title: "New Dispute Opened",
-      message: `A dispute has been opened regarding your property "${property.title}".`,
+      message: `A dispute (${dispute.referenceId}) has been opened regarding your property "${property.title}".`,
       meta: { disputeId: dispute._id, propertyId },
     });
 
@@ -79,7 +85,7 @@ const createDispute = async (req, res) => {
 };
 
 // ---------------------------
-// 2️⃣ Add Message to Dispute Thread (User, Agent, or Admin)
+// 2️⃣ Add Message to Dispute Thread
 // ---------------------------
 const addDisputeMessage = async (req, res) => {
   try {
@@ -95,7 +101,6 @@ const addDisputeMessage = async (req, res) => {
         .json({ success: false, message: "Dispute not found" });
     }
 
-    // 🔒 Authorization Check
     const isUser = dispute.user.toString() === userId;
     const isAgent = dispute.agent.toString() === userId;
     const isAdmin = userRole === "admin";
@@ -112,10 +117,8 @@ const addDisputeMessage = async (req, res) => {
       dispute.admin = req.user._id;
     }
 
-    // Process file attachments for the message
     const attachments = await extractAndUploadFiles(req.files);
 
-    // Determine message type if not explicitly passed
     let messageType = type || "text";
     if (attachments.length > 0 && !text) {
       messageType =
@@ -125,17 +128,15 @@ const addDisputeMessage = async (req, res) => {
           : "file";
     }
 
-    // Create a standalone DisputeMessage document linked to this dispute
     const newMessage = await DisputeMessage.create({
       dispute: disputeId,
       sender: req.user._id,
       text: text || "",
       attachments,
       type: messageType,
-      readBy: [req.user._id], // Sender has read it
+      readBy: [req.user._id],
     });
 
-    // Determine who to notify
     let recipientIds = [];
     if (isUser) {
       recipientIds.push(dispute.agent);
@@ -147,13 +148,12 @@ const addDisputeMessage = async (req, res) => {
       recipientIds.push(dispute.user, dispute.agent);
     }
 
-    // Dispatch notifications
     for (let recipientId of recipientIds) {
       if (recipientId) {
         await Notification.create({
           user: recipientId,
           title: "New Message in Dispute Ticket",
-          message: `There is a new message in your dispute thread.`,
+          message: `New message in ticket ${dispute.referenceId}.`,
           meta: { disputeId: dispute._id, messageId: newMessage._id },
         });
       }
@@ -171,7 +171,7 @@ const addDisputeMessage = async (req, res) => {
 };
 
 // ---------------------------
-// 3️⃣ Update Dispute Status / Resolve (Admin only)
+// 3️⃣ Update Dispute Status / Resolve
 // ---------------------------
 const updateDisputeStatus = async (req, res) => {
   try {
@@ -201,13 +201,12 @@ const updateDisputeStatus = async (req, res) => {
 
     await dispute.save();
 
-    // Notify user and agent
     const participants = [dispute.user, dispute.agent];
     for (let participantId of participants) {
       await Notification.create({
         user: participantId,
         title: "Dispute Status Updated",
-        message: `Your dispute status has been updated to: ${status.replace("_", " ")}.`,
+        message: `Your dispute (${dispute.referenceId}) status changed to: ${status.replace("_", " ")}.`,
         meta: { disputeId: dispute._id },
       });
     }
@@ -224,17 +223,20 @@ const updateDisputeStatus = async (req, res) => {
 };
 
 // ---------------------------
-// 4️⃣ Get Single Dispute Details (Includes fetching messages)
+// 4️⃣ Get Single Dispute Details (Fully Populated)
 // ---------------------------
 const getDisputeDetails = async (req, res) => {
   try {
     const { disputeId } = req.params;
 
+    // 🛠️ Fixed: Populated purchase and inspection so references can be used on frontend
     const dispute = await Dispute.findById(disputeId)
       .populate("property", "title images price location")
       .populate("user", "name email phone")
       .populate("agent", "name email phone")
-      .populate("admin", "name email");
+      .populate("admin", "name email")
+      .populate("purchase")
+      .populate("inspection");
 
     if (!dispute) {
       return res
@@ -242,7 +244,6 @@ const getDisputeDetails = async (req, res) => {
         .json({ success: false, message: "Dispute not found" });
     }
 
-    // Fetch associated messages separately using the separate DisputeMessage model with timestamps
     const messages = await DisputeMessage.find({ dispute: disputeId })
       .populate("sender", "name email role")
       .sort({ createdAt: 1 });
@@ -267,6 +268,8 @@ const getMyDisputes = async (req, res) => {
     const disputes = await Dispute.find({ user: userId })
       .populate("property", "title images location price")
       .populate("agent", "name email phone")
+      .populate("purchase")
+      .populate("inspection")
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: disputes.length, disputes });
@@ -285,6 +288,8 @@ const getAgentDisputes = async (req, res) => {
     const disputes = await Dispute.find({ agent: agentId })
       .populate("property", "title images location price")
       .populate("user", "name email phone")
+      .populate("purchase")
+      .populate("inspection")
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: disputes.length, disputes });
@@ -309,6 +314,8 @@ const getAllDisputes = async (req, res) => {
       .populate("user", "name email")
       .populate("agent", "name email")
       .populate("admin", "name email")
+      .populate("purchase")
+      .populate("inspection")
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: disputes.length, disputes });
