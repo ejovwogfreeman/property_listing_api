@@ -12,6 +12,7 @@ const {
   onboardAgent,
   getAllAgents,
   getAllUsers,
+  getAgentProfile,
 } = require("../controllers/user");
 const {
   uploadProfilePicture,
@@ -49,6 +50,9 @@ router.patch(
 router.get("/agents", getAllAgents);
 
 // get all users
-router.get("/agents", protect, authorize("admin"), getAllUsers);
+router.get("/users", protect, authorize("admin"), getAllUsers);
+
+// Get agent profile
+router.get("/agents/:id", getAgentProfile);
 
 module.exports = router;

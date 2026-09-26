@@ -294,6 +294,49 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+/**
+ * @desc Get a particular agent by ID (Public route)
+ */
+const getAgentProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find user by ID and ensure they have the role of 'agent'
+    const agent = await User.findOne({ _id: id, role: "agent" }).select(
+      "-password",
+    );
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent fetched successfully",
+      data: agent,
+    });
+  } catch (error) {
+    console.error("getAgentById error:", error);
+
+    // Handle invalid MongoDB ObjectId format safely
+    if (error.kind === "ObjectId") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid agent ID format",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getMe,
   updateProfile,
@@ -301,4 +344,5 @@ module.exports = {
   onboardAgent,
   getAllAgents,
   getAllUsers,
+  getAgentProfile,
 };

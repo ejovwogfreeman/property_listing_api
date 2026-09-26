@@ -32,13 +32,7 @@ router.get("/", getAllProperties);
 // ------------------------
 // Get all agent properties
 // Public
-router.get(
-  "/agent/:id",
-  protect,
-  authorize("admin", "agent"),
-  uploadPropertyFiles,
-  getAgentProperties,
-);
+router.get("/agent/:id", protect, getAgentProperties);
 
 // ------------------------
 // Get single property by ID

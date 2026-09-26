@@ -123,19 +123,10 @@ const getAllProperties = async (req, res) => {
  */
 const getAgentProperties = async (req, res) => {
   try {
-    const loggedInUserId = req.user._id.toString();
     const requestedAgentId = req.params.id; // or req.query.agentId
 
-    // ❌ If agent is trying to access another agent's properties
-    if (requestedAgentId !== loggedInUserId) {
-      return res.status(403).json({
-        success: false,
-        message: "This is not your property",
-      });
-    }
-
     const props = await Property.find({
-      "owner._id": loggedInUserId,
+      "owner._id": requestedAgentId,
     });
 
     res.json({

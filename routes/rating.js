@@ -20,7 +20,7 @@ router.post("/", protect, upload.none(), createRating);
 router.get("/property/:propertyId", getPropertyRatings);
 
 // 📌 Get all reviews for an agent (Can be specific agent ID or logged-in agent)
-router.get("/agent/:id", protect, getAgentRatings);
+router.get("/agent/:id", getAgentRatings);
 
 // 📌 Update a specific review by ID
 router.put("/:ratingId", protect, upload.none(), updateRating);
