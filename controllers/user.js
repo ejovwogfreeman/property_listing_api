@@ -258,7 +258,9 @@ const onboardAgent = async (req, res) => {
 
 const getAllAgents = async (req, res) => {
   try {
-    const agents = await User.find({ role: "agent" });
+    const agents = await User.find({ role: "agent" }).select(
+      "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+    );
 
     return res.status(200).json({
       success: true,
@@ -267,17 +269,18 @@ const getAllAgents = async (req, res) => {
       data: agents,
     });
   } catch (error) {
-    console.error(error);
+    console.error("getAllAgents error:", error);
     return res.status(500).json({
       success: false,
       message: "Server error",
+      error: error.message,
     });
   }
 };
 
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({ role: "user" });
+    const users = await User.find();
 
     return res.status(200).json({
       success: true,
@@ -303,7 +306,7 @@ const getAgentProfile = async (req, res) => {
 
     // Find user by ID and ensure they have the role of 'agent'
     const agent = await User.findOne({ _id: id, role: "agent" }).select(
-      "-password",
+      "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
     );
 
     if (!agent) {
