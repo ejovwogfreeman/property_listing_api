@@ -257,13 +257,14 @@ const getAgentEligibleDeals = async (req, res) => {
     const { agentId } = req.params;
     const userId = req.user._id;
 
+    // 🛠️ Fixed: Target owner._id instead of direct agent/owner fields
     const paidInspections = await Inspection.find({
       user: userId,
       feePaid: true,
     }).populate({
       path: "property",
-      match: { $or: [{ agent: agentId }, { owner: agentId }] },
-      select: "title address images",
+      match: { "owner._id": agentId },
+      select: "title address images price propertyType",
     });
 
     const paidPurchases = await Purchase.find({
@@ -271,8 +272,8 @@ const getAgentEligibleDeals = async (req, res) => {
       feePaid: true,
     }).populate({
       path: "property",
-      match: { $or: [{ agent: agentId }, { owner: agentId }] },
-      select: "title address images",
+      match: { "owner._id": agentId },
+      select: "title address images price propertyType",
     });
 
     const eligiblePropertiesMap = new Map();
