@@ -8,10 +8,13 @@ const {
   getAgentRatings,
   updateRating,
   deleteRating,
+  getAgentEligibleDeals,
 } = require("../controllers/rating");
 
-// Assuming you have an authentication middleware
 const { protect } = require("../middlewares/auth");
+
+// 📌 Get eligible deals/properties to rate a specific agent
+router.get("/agents/:agentId/eligible-deals", protect, getAgentEligibleDeals);
 
 // 📌 Create or Update a Review (Requires inspection or purchase)
 router.post("/", protect, upload.none(), createRating);

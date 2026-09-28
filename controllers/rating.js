@@ -3,6 +3,7 @@ const Property = require("../models/property");
 const Inspection = require("../models/inspection");
 const Purchase = require("../models/purchase");
 const Notification = require("../models/notification");
+
 // ---------------------------
 // 1️⃣ Create or Update Rating & Review
 // ---------------------------
@@ -41,7 +42,7 @@ const createRating = async (req, res) => {
     }
 
     // Determine the agent to assign the rating to (falls back to property owner if agent isn't set)
-    const agentId = property.owner;
+    const agentId = property.agent || property.owner;
 
     // Check if user already reviewed this property
     let existingRating = await Rating.findOne({
@@ -150,7 +151,7 @@ const getAgentRatings = async (req, res) => {
     const agentId = req.params.id || req.user._id;
 
     const ratings = await Rating.find({ agent: agentId })
-      .populate("property", "title address")
+      .populate("property", "title address images")
       .populate("user", "name")
       .sort({ createdAt: -1 });
 
@@ -248,10 +249,73 @@ const deleteRating = async (req, res) => {
   }
 };
 
+// ---------------------------
+// 6️⃣ Get User's Eligible Properties/Deals to Rate an Agent
+// ---------------------------
+const getAgentEligibleDeals = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const userId = req.user._id;
+
+    const paidInspections = await Inspection.find({
+      user: userId,
+      feePaid: true,
+    }).populate({
+      path: "property",
+      match: { $or: [{ agent: agentId }, { owner: agentId }] },
+      select: "title address images",
+    });
+
+    const paidPurchases = await Purchase.find({
+      buyer: userId,
+      feePaid: true,
+    }).populate({
+      path: "property",
+      match: { $or: [{ agent: agentId }, { owner: agentId }] },
+      select: "title address images",
+    });
+
+    const eligiblePropertiesMap = new Map();
+
+    paidInspections.forEach((insp) => {
+      if (insp.property) {
+        eligiblePropertiesMap.set(insp.property._id.toString(), {
+          property: insp.property,
+          inspectionId: insp._id,
+        });
+      }
+    });
+
+    paidPurchases.forEach((purch) => {
+      if (purch.property) {
+        const existing = eligiblePropertiesMap.get(
+          purch.property._id.toString(),
+        ) || { property: purch.property };
+        eligiblePropertiesMap.set(purch.property._id.toString(), {
+          ...existing,
+          purchaseId: purch._id,
+        });
+      }
+    });
+
+    const eligibleDeals = Array.from(eligiblePropertiesMap.values());
+
+    return res.status(200).json({
+      success: true,
+      count: eligibleDeals.length,
+      data: eligibleDeals,
+    });
+  } catch (err) {
+    console.error("getAgentEligibleDeals error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   createRating,
   getPropertyRatings,
   getAgentRatings,
   updateRating,
   deleteRating,
+  getAgentEligibleDeals,
 };
