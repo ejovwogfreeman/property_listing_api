@@ -338,14 +338,17 @@ const getAgentProfile = async (req, res) => {
 /**
  * @desc Onboard a standard user
  */
+/**
+ * @desc Complete standard user onboarding (sets isOnboarding to true)
+ */
 const onboardUser = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { phoneNumber, address } = req.body;
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // Verify user is a standard user
     if (user.role !== "user") {
       return res.status(403).json({
         message:
@@ -353,29 +356,18 @@ const onboardUser = async (req, res) => {
       });
     }
 
-    const profilePictureUrls =
-      req.files?.profilePicture || req.files?.images
-        ? await uploadImages(req.files.profilePicture || req.files.images)
-        : [];
-
-    if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
-    if (address !== undefined) user.address = address;
-
-    if (profilePictureUrls.length > 0) {
-      user.profilePicture = profilePictureUrls;
-    }
-
+    // Only update isOnboarding to true
     user.isOnboarding = true;
 
     await user.save();
 
-    // Sanitize user object
+    // Sanitize user object to remove password
     const userResponse = user.toObject();
     delete userResponse.password;
 
     return res.status(200).json({
       success: true,
-      message: "User onboarding submitted successfully",
+      message: "User onboarding completed successfully",
       user: userResponse,
     });
   } catch (err) {
