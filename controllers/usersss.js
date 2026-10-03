@@ -1,6 +1,9 @@
 const User = require("../models/user");
 const Notification = require("../models/notification");
 const jwt = require("jsonwebtoken");
+// const { OAuth2Client } = require("google-auth-library");
+// const Email = require("../middlewares/email");
+// const generateCode = require("../middlewares/generateCode");
 const { uploadImages } = require("../middlewares/cloudinary");
 
 /**
@@ -32,9 +35,6 @@ const getMe = async (req, res) => {
   }
 };
 
-/**
- * @desc Update user profile info
- */
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -63,6 +63,7 @@ const updateProfile = async (req, res) => {
     const admins = await User.find({ role: "admin" });
 
     for (const admin of admins) {
+      // Create notification in DB
       const notif = await Notification.create({
         user: admin._id,
         title: "User Profile Updated",
@@ -73,26 +74,20 @@ const updateProfile = async (req, res) => {
         },
       });
 
-      const adminSocketId = global.onlineUsers?.get(admin._id.toString());
-      if (adminSocketId && global.io) {
+      // Emit live notification via socket if admin is online
+      const adminSocketId = global.onlineUsers.get(admin._id.toString());
+      if (adminSocketId) {
         global.io.to(adminSocketId).emit("notification", notif);
       }
     }
 
-    // Sanitize user object to remove password before sending response
-    const userResponse = user.toObject();
-    delete userResponse.password;
-
-    res.json({ message: "User updated successfully", user: userResponse });
+    res.json({ message: "User updated successfully", user });
   } catch (err) {
     console.error("Update user error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
-/**
- * @desc Change user profile picture
- */
 const changeProfilePicture = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -101,16 +96,22 @@ const changeProfilePicture = async (req, res) => {
       return res.status(400).json({ message: "Profile picture is required" });
     }
 
+    // Upload the new image (returns the URL or path)
+    // Upload images (multiple)
     const imageUrl = req.files?.images
       ? await uploadImages(req.files.images)
       : [];
 
+    // const imageUrl = await uploadImages(images, "profile_pictures");
+
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // Update profile picture
     user.profilePicture = imageUrl;
     await user.save();
 
+    // Send notification to admin (optional)
     await Notification.create({
       user: user._id,
       title: "Profile Updated",
@@ -118,6 +119,7 @@ const changeProfilePicture = async (req, res) => {
       meta: { userId },
     });
 
+    // Emit socket notification to admin or relevant users
     if (global.io) {
       global.io.emit("notification", {
         type: "profile_picture_updated",
@@ -158,25 +160,30 @@ const onboardAgent = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // Verify user is an agent
     if (user.role !== "agent") {
       return res.status(403).json({
         message: "Only users with the agent role can complete onboarding",
       });
     }
 
+    // Handle files upload using your existing uploadImages helper pattern
+    // Assuming files are passed as req.files.governmentId and req.files.licenseDoc
     const governmentIdUrls = req.files?.governmentId
       ? await uploadImages(req.files.governmentId)
       : [];
 
-    const licenseDocUrls = req.files?.licenseDoc
+    const licenseDocUrls = req.files?.licenseDocf
       ? await uploadImages(req.files.licenseDoc)
       : [];
 
+    // Update text fields if provided
     if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
     if (about !== undefined) user.about = about;
     if (yearsOfExperience !== undefined)
       user.yearsOfExperience = yearsOfExperience;
 
+    // Handle array fields safely without breaking on plain strings
     if (serviceArea !== undefined) {
       try {
         user.serviceArea =
@@ -184,6 +191,7 @@ const onboardAgent = async (req, res) => {
             ? JSON.parse(serviceArea)
             : serviceArea;
       } catch (e) {
+        // Fallback if it's a plain comma-separated string or just text like "test"
         user.serviceArea =
           typeof serviceArea === "string"
             ? serviceArea.split(",").map((s) => s.trim())
@@ -196,6 +204,7 @@ const onboardAgent = async (req, res) => {
         user.languages =
           typeof languages === "string" ? JSON.parse(languages) : languages;
       } catch (e) {
+        // Fallback if it's a plain comma-separated string or just text like "English"
         user.languages =
           typeof languages === "string"
             ? languages.split(",").map((l) => l.trim())
@@ -209,12 +218,16 @@ const onboardAgent = async (req, res) => {
     if (socialLinkOrWebsite !== undefined)
       user.socialLinkOrWebsite = socialLinkOrWebsite;
 
+    // Assign uploaded file URLs
     user.governmentId = governmentIdUrls;
     user.licenseDoc = licenseDocUrls;
+
+    // Mark onboarding as complete
     user.isOnboarding = true;
 
     await user.save();
 
+    // Notify admins about agent onboarding submission
     const admins = await User.find({ role: "admin" });
     for (const admin of admins) {
       const notif = await Notification.create({
@@ -230,14 +243,10 @@ const onboardAgent = async (req, res) => {
       }
     }
 
-    // Sanitize user object
-    const userResponse = user.toObject();
-    delete userResponse.password;
-
     return res.status(200).json({
       success: true,
       message: "Agent onboarding submitted successfully",
-      user: userResponse,
+      user,
     });
   } catch (err) {
     console.error("onboardAgent error:", err);
@@ -247,9 +256,6 @@ const onboardAgent = async (req, res) => {
   }
 };
 
-/**
- * @desc Get all agents (Public route)
- */
 const getAllAgents = async (req, res) => {
   try {
     const agents = await User.find({ role: "agent" }).select(
@@ -272,12 +278,9 @@ const getAllAgents = async (req, res) => {
   }
 };
 
-/**
- * @desc Get all users (Admin/General route - password excluded)
- */
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select("-password");
+    const users = await User.find();
 
     return res.status(200).json({
       success: true,
@@ -286,7 +289,7 @@ const getAllUsers = async (req, res) => {
       data: users,
     });
   } catch (error) {
-    console.error("getAllUsers error:", error);
+    console.error(error);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -301,6 +304,7 @@ const getAgentProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Find user by ID and ensure they have the role of 'agent'
     const agent = await User.findOne({ _id: id, role: "agent" }).select(
       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
     );
@@ -318,8 +322,9 @@ const getAgentProfile = async (req, res) => {
       data: agent,
     });
   } catch (error) {
-    console.error("getAgentProfile error:", error);
+    console.error("getAgentById error:", error);
 
+    // Handle invalid MongoDB ObjectId format safely
     if (error.kind === "ObjectId") {
       return res.status(400).json({
         success: false,
@@ -336,7 +341,7 @@ const getAgentProfile = async (req, res) => {
 };
 
 /**
- * @desc Onboard a standard user
+ * @desc Onboard a standard user by submitting basic profile details and an optional profile picture
  */
 const onboardUser = async (req, res) => {
   try {
@@ -346,6 +351,7 @@ const onboardUser = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // Verify user is a standard user
     if (user.role !== "user") {
       return res.status(403).json({
         message:
@@ -353,30 +359,30 @@ const onboardUser = async (req, res) => {
       });
     }
 
+    // Handle optional profile picture upload
     const profilePictureUrls =
       req.files?.profilePicture || req.files?.images
         ? await uploadImages(req.files.profilePicture || req.files.images)
         : [];
 
+    // Update text fields if provided
     if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
     if (address !== undefined) user.address = address;
 
+    // Assign uploaded profile picture URL if provided
     if (profilePictureUrls.length > 0) {
       user.profilePicture = profilePictureUrls;
     }
 
+    // Mark onboarding as complete
     user.isOnboarding = true;
 
     await user.save();
 
-    // Sanitize user object
-    const userResponse = user.toObject();
-    delete userResponse.password;
-
     return res.status(200).json({
       success: true,
       message: "User onboarding submitted successfully",
-      user: userResponse,
+      user,
     });
   } catch (err) {
     console.error("onboardUser error:", err);
@@ -386,13 +392,12 @@ const onboardUser = async (req, res) => {
   }
 };
 
-/**
- * @desc Get user profile by ID (Public/Protected route)
- */
 const getUserProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Find user by ID and ensure they have the role of 'user'
+    // (Remove 'role: "user"' if you want this endpoint to fetch any user type)
     const user = await User.findOne({ _id: id, role: "user" }).select(
       "name profilePicture address phoneNumber rating createdAt isOnboarding",
     );
@@ -412,6 +417,7 @@ const getUserProfile = async (req, res) => {
   } catch (error) {
     console.error("getUserProfile error:", error);
 
+    // Handle invalid MongoDB ObjectId format safely
     if (error.kind === "ObjectId") {
       return res.status(400).json({
         success: false,

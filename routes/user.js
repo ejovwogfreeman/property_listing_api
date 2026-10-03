@@ -13,7 +13,9 @@ const {
   getAllAgents,
   getAllUsers,
   getAgentProfile,
-} = require("../controllers/user");
+  onboardUser,
+  getUserProfile,
+} = require("../controllers/usersss");
 const {
   uploadProfilePicture,
   uploadOnboardingFiles,
@@ -46,6 +48,15 @@ router.patch(
   onboardAgent,
 );
 
+// PUT or PATCH endpoint to onboard the agent
+router.patch(
+  "/onboard-user",
+  protect,
+  authorize("user"),
+  uploadOnboardingFiles,
+  onboardUser,
+);
+
 // Get all agents
 router.get("/agents", getAllAgents);
 
@@ -54,5 +65,8 @@ router.get("/users", protect, authorize("admin"), getAllUsers);
 
 // Get agent profile
 router.get("/agents/:id", getAgentProfile);
+
+// Get agent profile
+router.get("/users/:id", getUserProfile);
 
 module.exports = router;
