@@ -15,7 +15,7 @@ const {
   getAgentProfile,
   onboardUser,
   getUserProfile,
-} = require("../controllers/usersss");
+} = require("../controllers/user");
 const {
   uploadProfilePicture,
   uploadOnboardingFiles,

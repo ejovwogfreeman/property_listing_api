@@ -4,7 +4,6 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const Email = require("../middlewares/email");
 const generateCode = require("../middlewares/generateCode");
-const { changeProfilePicture } = require("./usersss");
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
