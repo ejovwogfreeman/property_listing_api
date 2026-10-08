@@ -14,6 +14,7 @@ const {
   getAllUsers,
   getAgentProfile,
   onboardUser,
+  upgradeUser,
   getUserProfile,
 } = require("../controllers/user");
 const {
@@ -49,13 +50,10 @@ router.patch(
 );
 
 // PUT or PATCH endpoint to onboard the agent
-router.patch(
-  "/onboard-user",
-  protect,
-  authorize("user"),
-  uploadOnboardingFiles,
-  onboardUser,
-);
+router.patch("/onboard-user", protect, uploadOnboardingFiles, onboardUser);
+
+// PUT or PATCH endpoint to onboard the agent
+router.patch("/upgrade-user", protect, upgradeUser);
 
 // Get all agents
 router.get("/agents", getAllAgents);

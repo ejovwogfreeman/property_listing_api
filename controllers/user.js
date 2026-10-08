@@ -44,12 +44,13 @@ const updateProfile = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Only allow normal users to update
-    if (user.isGoogleUser) {
-      return res
-        .status(403)
-        .json({ message: "Google users cannot update these fields" });
-    }
+    // if (user.isGoogleUser) {
+    //   return res
+    //     .status(403)
+    //     .json({ message: "Google users cannot update these fields" });
+    // }
 
+    // all users (both google and non google users can now update these fields)
     // Update allowed fields
     if (name) user.name = name;
     if (address) user.address = address;
@@ -336,9 +337,6 @@ const getAgentProfile = async (req, res) => {
 };
 
 /**
- * @desc Onboard a standard user
- */
-/**
  * @desc Complete standard user onboarding (sets isOnboarding to true)
  */
 const onboardUser = async (req, res) => {
@@ -349,13 +347,14 @@ const onboardUser = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Verify user is a standard user
-    if (user.role !== "user") {
-      return res.status(403).json({
-        message:
-          "Only users with the standard user role can complete this onboarding",
-      });
-    }
+    // if (user.role !== "user") {
+    //   return res.status(403).json({
+    //     message:
+    //       "Only users with the standard user role can complete this onboarding",
+    //   });
+    // }
 
+    // anybody can now access this route
     // Only update isOnboarding to true
     user.isOnboarding = true;
 
@@ -372,6 +371,50 @@ const onboardUser = async (req, res) => {
     });
   } catch (err) {
     console.error("onboardUser error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Upgrade user account role from 'user' to 'agent'
+ */
+const upgradeUser = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Check if user is already an agent
+    if (user.role === "agent") {
+      return res.status(400).json({
+        success: false,
+        message: "Your account is already an agent account",
+      });
+    }
+
+    // Upgrade role to agent
+    user.role = "agent";
+
+    // Reset isOnboarding to false so they can proceed with filling out their agent profile/documents
+    user.isOnboarding = false;
+
+    await user.save();
+
+    // Sanitize user object to remove password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Account upgraded to agent successfully. Please proceed with agent onboarding.",
+      user: userResponse,
+    });
+  } catch (err) {
+    console.error("upgrade User error:", err);
     return res
       .status(500)
       .json({ message: "Server error", error: err.message });
@@ -428,5 +471,6 @@ module.exports = {
   getAllUsers,
   getAgentProfile,
   onboardUser,
+  upgradeUser,
   getUserProfile,
 };
