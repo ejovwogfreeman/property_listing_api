@@ -65,6 +65,6 @@ router.get("/users", protect, authorize("admin"), getAllUsers);
 router.get("/agents/:id", getAgentProfile);
 
 // Get agent profile
-router.get("/users/:id", getUserProfile);
+router.get("/users/:id", protect, getUserProfile);
 
 module.exports = router;

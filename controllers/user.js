@@ -347,12 +347,12 @@ const onboardUser = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Verify user is a standard user
-    // if (user.role !== "user") {
-    //   return res.status(403).json({
-    //     message:
-    //       "Only users with the standard user role can complete this onboarding",
-    //   });
-    // }
+    if (user.role !== "user") {
+      return res.status(403).json({
+        message:
+          "Only users with the standard user role can complete this onboarding",
+      });
+    }
 
     // anybody can now access this route
     // Only update isOnboarding to true
@@ -388,7 +388,7 @@ const upgradeUser = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Check if user is already an agent
-    if (user.role === "agent") {
+    if (user.role !== "user") {
       return res.status(400).json({
         success: false,
         message: "Your account is already an agent account",
