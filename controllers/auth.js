@@ -408,7 +408,7 @@ login = async (req, res) => {
 //   }
 // };
 
-const googleAuth = async (req, res) => {
+googleAuth = async (req, res) => {
   try {
     const { tokenId, mode, role } = req.body; // "register" or "login", plus optional role
 
