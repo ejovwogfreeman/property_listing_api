@@ -23,6 +23,7 @@ const ratingRoutes = require("./routes/rating");
 const disputeRoutes = require("./routes/dispute");
 // const notificationRoutes = require("./routes/notification");
 const escrowRoutes = require("./routes/escrow");
+const feedbackRoutes = require("./routes/feedback");
 
 // Import socket handler
 const socketHandler = require("./middlewares/socket");
@@ -71,6 +72,7 @@ app.use("/api/rating", ratingRoutes);
 app.use("/api/dispute", disputeRoutes);
 // app.use("/api/notification", notificationRoutes);
 app.use("/api/escrow", escrowRoutes);
+app.use("/api/feedback", feedbackRoutes);
 
 // ------------------------
 // Socket.IO setup

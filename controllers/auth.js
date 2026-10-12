@@ -588,7 +588,11 @@ forgetPassword = async (req, res) => {
     await user.save();
 
     // Send email to user
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?email=${email}`;
+    const rolePath =
+      user.role === "agent"
+        ? "/agent/change-password"
+        : "/profile/change-password";
+    const resetLink = `${process.env.FRONTEND_URL}${rolePath}?email=${email}`;
     await Email(email, "Password Reset Request", "passwordreset.html", {
       EMAIL: email,
       RESET_LINK: resetLink,
