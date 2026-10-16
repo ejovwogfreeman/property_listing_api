@@ -469,6 +469,67 @@ const deleteProperty = async (req, res) => {
   }
 };
 
+/**
+ * @desc Change property status (Admin only)
+ * @route PATCH /api/properties/:id/status
+ */
+const changePropertyStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    // Define valid status options
+    const validStatuses = ["pending", "approved", "rejected"];
+
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Status must be one of: ${validStatuses.join(", ")}`,
+      });
+    }
+
+    // Verify that the user is an admin
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can update property status.",
+      });
+    }
+
+    const property = await Property.findById(id);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    property.status = status;
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Property status successfully updated to '${status}'`,
+      data: property,
+    });
+  } catch (err) {
+    console.error("changePropertyStatus error:", err);
+
+    if (err.kind === "ObjectId") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property ID format",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
 module.exports = {
   createProperty,
   getAllProperties,
@@ -476,4 +537,5 @@ module.exports = {
   getProperty,
   updateProperty,
   deleteProperty,
+  changePropertyStatus,
 };

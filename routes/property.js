@@ -8,6 +8,7 @@ const {
   getProperty,
   updateProperty,
   deleteProperty,
+  changePropertyStatus,
 } = require("../controllers/property");
 const { protect, authorize } = require("../middlewares/auth");
 const { uploadPropertyFiles, uploadNone } = require("../middlewares/upload");
@@ -55,5 +56,17 @@ router.put(
 // Delete property by ID
 // Only admin or agent
 router.delete("/:id", protect, authorize("admin", "agent"), deleteProperty);
+
+// ------------------------
+// Update property by ID
+// Only admin
+// Upload new images/video if any
+router.put(
+  "/status/:id",
+  protect,
+  authorize("admin"),
+  uploadNone,
+  updateProperty,
+);
 
 module.exports = router;
