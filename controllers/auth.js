@@ -25,6 +25,9 @@ register = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
+    // Disallow direct registration as admin
+    const assignedRole = role === "agent" ? "agent" : "user";
+
     if (!name || !email || !password) {
       return res.status(400).json({ message: "Missing fields" });
     }
@@ -40,7 +43,7 @@ register = async (req, res) => {
       name,
       email,
       password,
-      role,
+      assignedRole,
       verificationCode,
       isVerified: false,
       isGoogleUser: false,

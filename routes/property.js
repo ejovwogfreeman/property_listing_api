@@ -66,7 +66,7 @@ router.put(
   protect,
   authorize("admin"),
   uploadNone,
-  updateProperty,
+  changePropertyStatus,
 );
 
 module.exports = router;

@@ -110,7 +110,9 @@ const createProperty = async (req, res) => {
  */
 const getAllProperties = async (req, res) => {
   try {
-    const props = await Property.find();
+    const props = await Property.find({ status: "approved" }).sort({
+      createdAt: -1,
+    });
     res.json({ success: true, properties: props });
   } catch (err) {
     console.error("listProperties error:", err);
@@ -146,6 +148,40 @@ const getAgentProperties = async (req, res) => {
 /**
  * @desc Get single property
  */
+// const getProperty = async (req, res) => {
+//   try {
+//     const prop = await Property.findById(req.params.id).populate(
+//       "owner",
+//       "name email phoneNumber profilePicture",
+//     );
+//     if (!prop)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Property not found" });
+
+//     // Notify owner that their property was viewed (optional)
+//     await Notification.create({
+//       user: prop.owner._id,
+//       title: "Property Viewed",
+//       message: `Your property "${prop.title}" was viewed.`,
+//       meta: { propertyId: prop._id },
+//     });
+
+//     if (global.io)
+//       global.io.emit("notification", {
+//         type: "property_viewed",
+//         title: "Property Viewed",
+//         message: `Someone viewed "${prop.title}".`,
+//         propertyId: prop._id,
+//       });
+
+//     res.json({ success: true, property: prop });
+//   } catch (err) {
+//     console.error("getProperty error:", err);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
+
 const getProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id).populate(
@@ -157,21 +193,31 @@ const getProperty = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Property not found" });
 
-    // Notify owner that their property was viewed (optional)
-    await Notification.create({
-      user: prop.owner._id,
-      title: "Property Viewed",
-      message: `Your property "${prop.title}" was viewed.`,
-      meta: { propertyId: prop._id },
-    });
+    // Check viewer identity (safely handling optional auth if guests can view)
+    const viewerId = req.user?._id?.toString();
+    const viewerRole = req.user?.role;
 
-    if (global.io)
-      global.io.emit("notification", {
-        type: "property_viewed",
+    const isOwner = viewerId && viewerId === prop.owner._id.toString();
+    const isAdmin = viewerRole === "admin";
+
+    // Only notify owner if the viewer is NEITHER the owner nor an admin
+    if (!isOwner && !isAdmin) {
+      await Notification.create({
+        user: prop.owner._id,
         title: "Property Viewed",
-        message: `Someone viewed "${prop.title}".`,
-        propertyId: prop._id,
+        message: `Your property "${prop.title}" was viewed.`,
+        meta: { propertyId: prop._id },
       });
+
+      if (global.io) {
+        global.io.emit("notification", {
+          type: "property_viewed",
+          title: "Property Viewed",
+          message: `Someone viewed "${prop.title}".`,
+          propertyId: prop._id,
+        });
+      }
+    }
 
     res.json({ success: true, property: prop });
   } catch (err) {
