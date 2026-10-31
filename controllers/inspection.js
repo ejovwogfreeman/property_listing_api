@@ -54,13 +54,18 @@ const requestInspection = async (req, res) => {
     }
 
     const code = generateCode();
+    const inspectionFee = property.inspectionFee || 0;
+
+    // Calculate platform fee (e.g., 10% platform cut on inspections)
+    const platformFee = inspectionFee * 0.1;
 
     const inspection = await Inspection.create({
       property: property._id,
       owner: property.owner,
       user: userId,
       code,
-      fee: property.inspectionFee,
+      fee: inspectionFee,
+      platformFee: platformFee, // <--- SAVED HERE (Item 18)
       status: "inspection_requested",
     });
 
@@ -204,7 +209,8 @@ const verifyInspectionPayment = async (req, res) => {
         buyer: inspection.user,
         seller: inspection.owner?._id || inspection.owner,
         amount: inspection.fee,
-        status: "pending",
+        platformFee: inspection.platformFee || 0, // <--- Also track platform fee on the Escrow record if needed
+        status: "on_hold",
         reference,
         type: "inspection",
       });
@@ -589,14 +595,27 @@ const changeInspectionStatus = async (req, res) => {
     inspection.escrowHeldBy = adminId;
     await inspection.save();
 
+    // Find the corresponding escrow record
     let escrow = await Escrow.findOne({
       property: inspection.property?._id,
       buyer: inspection.user,
       type: "inspection",
     });
-    if (escrow && status === "inspection_confirmed") {
-      escrow.status = "approved";
-      await escrow.save();
+
+    if (escrow) {
+      // Release funds if inspection is confirmed or completed
+      if (
+        status === "inspection_confirmed" ||
+        status === "inspection_completed"
+      ) {
+        escrow.status = "released";
+        await escrow.save();
+      }
+      // Refund buyer if inspection is cancelled
+      else if (status === "inspection_cancelled") {
+        escrow.status = "refunded";
+        await escrow.save();
+      }
     }
 
     res.json({
@@ -657,7 +676,6 @@ const getUserInspections = async (req, res) => {
           inspectionObj.property.images.length > 0
             ? inspectionObj.property.images[0]
             : null;
-        // Keeps the full `images` array intact!
       }
       return inspectionObj;
     });
@@ -683,7 +701,6 @@ const getAgentInspections = async (req, res) => {
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
 
-    // Map through inspections to extract the first image of the property
     const formattedInspections = inspections.map((inspection) => {
       const inspectionObj = inspection.toObject();
       if (
@@ -726,7 +743,6 @@ const getAllInspections = async (req, res) => {
           inspectionObj.property.images.length > 0
             ? inspectionObj.property.images[0]
             : null;
-        // Notice: `images` array is NOT deleted here either!
       }
       return inspectionObj;
     });

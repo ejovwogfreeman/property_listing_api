@@ -12,12 +12,16 @@ const PurchaseSchema = new Schema(
       required: true,
     },
     price: { type: Number, required: true },
+
+    // --- ITEM 18: Platform Fee Recorded per Purchase ---
+    platformFee: { type: Number, default: 0 },
+    // ---------------------------------------------------
+
     // 🔑 Paystack reference
     reference: {
       type: String,
       unique: true,
     },
-    // code: { type: String }, // optional purchase code
     feePaid: { type: Boolean, default: false }, // buyer has paid
     feeReleased: { type: Boolean, default: false }, // payment released to owner
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin holding payment
@@ -32,6 +36,7 @@ const PurchaseSchema = new Schema(
         "handover_confirmed",
         "handover_completed",
         "funds_released",
+        "purchase_cancelled",
       ],
       default: "none",
     },

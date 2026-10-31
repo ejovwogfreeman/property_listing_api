@@ -6,6 +6,105 @@ const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
  * @desc Create a new property
  */
 
+// const createProperty = async (req, res) => {
+//   try {
+//     const {
+//       title,
+//       description,
+//       price,
+//       escrowFee,
+//       address,
+//       propertyType,
+//       listingType,
+//       landSize, // for land only
+//       landUnit, // for land only
+//       landCondition, // for land only
+//       landDocTitle, // for land only
+//       landType, //for land only
+//       bedroom, // for apartment/house only
+//       bathroom, // for apartment/house only
+//       kitchen, // for apartment/house only
+//       inspectionFee,
+//       serviceCharge,
+//       nearbyPlaces, // array of strings
+//     } = req.body;
+
+//     const user = req.user; // Logged in user
+//     const owner = {
+//       _id: user._id,
+//       name: user.name,
+//       profilePicture: user.profilePicture || null,
+//       isVerified: user.isVerified || false,
+//       rating: user.rating || 0,
+//       totalListings: user.totalListings || 0,
+//     };
+
+//     // Upload images (multiple)
+//     const images = req.files?.images
+//       ? await uploadImages(req.files.images)
+//       : [];
+
+//     // Upload land document (multiple)
+//     const legalDocuments = req.files?.legalDocuments
+//       ? await uploadImages(req.files.legalDocuments)
+//       : [];
+
+//     // Upload video (single)
+//     const videos = req.files?.videos
+//       ? await uploadVideos(req.files.videos)
+//       : [];
+//     // const video = videoUrls[0] || null;
+
+//     // Create property
+//     const prop = await Property.create({
+//       title,
+//       description,
+//       price,
+//       escrowFee,
+//       address,
+//       propertyType,
+//       listingType,
+//       landSize: propertyType === "land" ? landSize : null,
+//       landUnit: propertyType === "land" ? landUnit : null,
+//       landCondition: propertyType === "land" ? landCondition : null,
+//       landDocTitle: propertyType === "land" ? landDocTitle : null,
+//       landType: propertyType === "land" ? landType : null,
+//       legalDocuments: legalDocuments,
+//       bedroom: propertyType !== "land" ? bedroom : null,
+//       bathroom: propertyType !== "land" ? bathroom : null,
+//       kitchen: propertyType !== "land" ? kitchen : null,
+//       inspectionFee,
+//       serviceCharge,
+//       nearbyPlaces: nearbyPlaces || [],
+//       images,
+//       videos,
+//       owner,
+//     });
+
+//     // Create notification
+//     await Notification.create({
+//       user: user._id,
+//       title: "Property Created",
+//       message: `Your property "${title}" was created successfully.`,
+//       meta: { propertyId: prop._id },
+//     });
+
+//     // Broadcast to global socket
+//     if (global.io)
+//       global.io.emit("notification", {
+//         type: "property_created",
+//         title: "New Property Listed",
+//         message: `New property "${title}" just got listed.`,
+//         propertyId: prop._id,
+//       });
+
+//     res.status(201).json({ success: true, property: prop });
+//   } catch (err) {
+//     console.error("createProperty error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 const createProperty = async (req, res) => {
   try {
     const {
@@ -20,23 +119,39 @@ const createProperty = async (req, res) => {
       landUnit, // for land only
       landCondition, // for land only
       landDocTitle, // for land only
-      landType, //for land only
+      landType, // for land only
       bedroom, // for apartment/house only
       bathroom, // for apartment/house only
       kitchen, // for apartment/house only
       inspectionFee,
       serviceCharge,
       nearbyPlaces, // array of strings
+      ownerId, // OPTIONAL: target agent ID when created by an Admin
     } = req.body;
 
-    const user = req.user; // Logged in user
+    const loggedInUser = req.user; // Logged in user (Agent or Admin)
+    let targetOwnerUser = loggedInUser;
+
+    // If an Admin is creating the property for an agent
+    if (loggedInUser.role === "admin" && ownerId) {
+      const targetAgent = await User.findById(ownerId);
+      if (!targetAgent) {
+        return res.status(404).json({
+          success: false,
+          message: "Target agent user not found.",
+        });
+      }
+      targetOwnerUser = targetAgent;
+    }
+
+    // Build the subdocument owner object
     const owner = {
-      _id: user._id,
-      name: user.name,
-      profilePicture: user.profilePicture || null,
-      isVerified: user.isVerified || false,
-      rating: user.rating || 0,
-      totalListings: user.totalListings || 0,
+      _id: targetOwnerUser._id,
+      name: targetOwnerUser.name,
+      profilePicture: targetOwnerUser.profilePicture || null,
+      isVerified: targetOwnerUser.isVerified || false,
+      rating: targetOwnerUser.rating || 0,
+      totalListings: targetOwnerUser.totalListings || 0,
     };
 
     // Upload images (multiple)
@@ -49,11 +164,10 @@ const createProperty = async (req, res) => {
       ? await uploadImages(req.files.legalDocuments)
       : [];
 
-    // Upload video (single)
+    // Upload video (single/multiple)
     const videos = req.files?.videos
       ? await uploadVideos(req.files.videos)
       : [];
-    // const video = videoUrls[0] || null;
 
     // Create property
     const prop = await Property.create({
@@ -81,27 +195,28 @@ const createProperty = async (req, res) => {
       owner,
     });
 
-    // Create notification
+    // Send notification to the actual property owner/agent
     await Notification.create({
-      user: user._id,
+      user: targetOwnerUser._id,
       title: "Property Created",
       message: `Your property "${title}" was created successfully.`,
       meta: { propertyId: prop._id },
     });
 
     // Broadcast to global socket
-    if (global.io)
+    if (global.io) {
       global.io.emit("notification", {
         type: "property_created",
         title: "New Property Listed",
         message: `New property "${title}" just got listed.`,
         propertyId: prop._id,
       });
+    }
 
-    res.status(201).json({ success: true, property: prop });
+    return res.status(201).json({ success: true, property: prop });
   } catch (err) {
     console.error("createProperty error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -519,10 +634,67 @@ const deleteProperty = async (req, res) => {
  * @desc Change property status (Admin only)
  * @route PATCH /api/properties/:id/status
  */
+// const changePropertyStatus = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { status } = req.body;
+
+//     // Define valid status options
+//     const validStatuses = ["pending", "approved", "rejected"];
+
+//     if (!status || !validStatuses.includes(status)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Invalid status. Status must be one of: ${validStatuses.join(", ")}`,
+//       });
+//     }
+
+//     // Verify that the user is an admin
+//     if (req.user.role !== "admin") {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Access denied. Only admins can update property status.",
+//       });
+//     }
+
+//     const property = await Property.findById(id);
+//     if (!property) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Property not found",
+//       });
+//     }
+
+//     property.status = status;
+//     await property.save();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: `Property status successfully updated to '${status}'`,
+//       data: property,
+//     });
+//   } catch (err) {
+//     console.error("changePropertyStatus error:", err);
+
+//     if (err.kind === "ObjectId") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid property ID format",
+//       });
+//     }
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: err.message,
+//     });
+//   }
+// };
+
 const changePropertyStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, reason } = req.body; // Added optional 'reason' extraction
 
     // Define valid status options
     const validStatuses = ["pending", "approved", "rejected"];
@@ -553,6 +725,29 @@ const changePropertyStatus = async (req, res) => {
     property.status = status;
     await property.save();
 
+    // --- BUG 7: Notify the agent/owner on approval or rejection ---
+    let notificationMessage = `Your property "${property.title}" has been ${status}.`;
+    if (status === "rejected" && reason) {
+      notificationMessage += ` Reason: ${reason}`;
+    }
+
+    await Notification.create({
+      user: property.owner,
+      title: `Property ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      message: notificationMessage,
+      meta: { propertyId: property._id },
+    });
+
+    if (global.io) {
+      global.io.emit("notification", {
+        type: `property_${status}`,
+        title: `Property ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+        message: notificationMessage,
+        propertyId: property._id,
+      });
+    }
+    // -------------------------------------------------------------
+
     return res.status(200).json({
       success: true,
       message: `Property status successfully updated to '${status}'`,
@@ -576,6 +771,243 @@ const changePropertyStatus = async (req, res) => {
   }
 };
 
+/**
+ * @desc Flag or unflag a property listing (Admin only)
+ * @route PATCH /api/properties/:id/flag
+ */
+const flagProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { flagged, reason } = req.body;
+
+    // Verify that the user is an admin
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can flag property listings.",
+      });
+    }
+
+    if (typeof flagged !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "The 'flagged' field must be a boolean (true or false).",
+      });
+    }
+
+    const property = await Property.findById(id);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    // Update flag fields
+    property.isFlagged = flagged;
+    property.flagReason = flagged ? reason || "No reason provided" : null;
+    property.flaggedAt = flagged ? new Date() : null;
+
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: flagged
+        ? "Property successfully flagged"
+        : "Property unflagged successfully",
+      property,
+    });
+  } catch (err) {
+    console.error("flagProperty error:", err);
+
+    if (err.kind === "ObjectId") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property ID format",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * @desc Add an admin note to a property listing & notify the agent
+ * @route POST /api/properties/:propertyId/notes
+ */
+const addAdminNote = async (req, res) => {
+  try {
+    const { propertyId } = req.params;
+    const { note } = req.body;
+
+    if (!note || !note.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Note content cannot be empty.",
+      });
+    }
+
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can add notes.",
+      });
+    }
+
+    const property = await Property.findById(propertyId).populate("owner");
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    const newNote = {
+      note,
+      author: {
+        _id: req.user._id,
+        name: req.user.name,
+      },
+      createdAt: new Date(),
+    };
+
+    property.adminNotes.push(newNote);
+    await property.save();
+
+    const savedNote = property.adminNotes[property.adminNotes.length - 1];
+
+    // Notify agent/owner
+    const ownerId = property.owner?._id || property.owner;
+    if (ownerId) {
+      const notificationMessage = `An admin left a note on your property "${property.title}": "${note}"`;
+
+      await Notification.create({
+        user: ownerId,
+        title: "New Admin Note",
+        message: notificationMessage,
+        meta: { propertyId: property._id },
+      });
+
+      if (global.io) {
+        global.io.emit("notification", {
+          type: "admin_note_added",
+          title: "New Admin Note",
+          message: notificationMessage,
+          propertyId: property._id,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      note: savedNote,
+    });
+  } catch (err) {
+    console.error("addAdminNote error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * @desc Update an existing admin note
+ * @route PATCH /api/properties/:propertyId/notes/:noteId
+ */
+const updateAdminNote = async (req, res) => {
+  try {
+    const { propertyId, noteId } = req.params;
+    const { note } = req.body;
+
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can update notes.",
+      });
+    }
+
+    if (!note || !note.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Note content cannot be empty.",
+      });
+    }
+
+    const property = await Property.findById(propertyId);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    const targetNote = property.adminNotes.id(noteId);
+    if (!targetNote) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin note not found",
+      });
+    }
+
+    targetNote.note = note;
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      note: targetNote,
+    });
+  } catch (err) {
+    console.error("updateAdminNote error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * @desc Delete an admin note
+ * @route DELETE /api/properties/:propertyId/notes/:noteId
+ */
+const deleteAdminNote = async (req, res) => {
+  try {
+    const { propertyId, noteId } = req.params;
+
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can delete notes.",
+      });
+    }
+
+    const property = await Property.findById(propertyId);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    const targetNote = property.adminNotes.id(noteId);
+    if (!targetNote) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin note not found",
+      });
+    }
+
+    property.adminNotes.pull(noteId);
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin note successfully deleted",
+    });
+  } catch (err) {
+    console.error("deleteAdminNote error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   createProperty,
   getAllProperties,
@@ -584,4 +1016,8 @@ module.exports = {
   updateProperty,
   deleteProperty,
   changePropertyStatus,
+  flagProperty,
+  addAdminNote,
+  updateAdminNote,
+  deleteAdminNote,
 };

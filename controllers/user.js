@@ -298,12 +298,50 @@ const getAllUsers = async (req, res) => {
 /**
  * @desc Get a particular agent by ID (Public route)
  */
+// const getAgentProfile = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const agent = await User.findOne({ _id: id, role: "agent" }).select(
+//       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+//     );
+
+//     if (!agent) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Agent not found",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agent fetched successfully",
+//       data: agent,
+//     });
+//   } catch (error) {
+//     console.error("getAgentProfile error:", error);
+
+//     if (error.kind === "ObjectId") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid agent ID format",
+//       });
+//     }
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
 const getAgentProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
     const agent = await User.findOne({ _id: id, role: "agent" }).select(
-      "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+      "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings riskLevel createdAt",
     );
 
     if (!agent) {
@@ -462,6 +500,116 @@ const getUserProfile = async (req, res) => {
   }
 };
 
+/**
+ * @desc Update an agent's risk level (Admin only)
+ * @route PATCH /api/users/agents/:id/risk
+ */
+const updateAgentRiskLevel = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { riskLevel } = req.body;
+
+    // 1. Verify admin role
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can update risk levels.",
+      });
+    }
+
+    // 2. Validate riskLevel value matches schema enum
+    const validLevels = ["none", "low", "medium", "high"];
+    if (!validLevels.includes(riskLevel)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid risk level. Must be 'none', 'low', 'medium', or 'high'.",
+      });
+    }
+
+    // 3. Find and update the agent
+    const agent = await User.findById(id);
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+    }
+
+    agent.riskLevel = riskLevel;
+    await agent.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Agent risk level successfully updated to '${riskLevel}'`,
+      agent: {
+        _id: agent._id,
+        name: agent.name,
+        email: agent.email,
+        riskLevel: agent.riskLevel,
+      },
+    });
+  } catch (err) {
+    console.error("updateAgentRiskLevel error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 15. Approve or Reject Agent Verification
+const updateAgentVerification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; // "approved" or "rejected"
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status value" });
+    }
+
+    const agent = await User.findOne({ _id: id, role: "agent" });
+    if (!agent)
+      return res
+        .status(404)
+        .json({ success: false, message: "Agent not found" });
+
+    agent.verificationStatus = status;
+    agent.isVerified = status === "approved";
+    await agent.save();
+
+    return res
+      .status(200)
+      .json({ success: true, message: `Agent verification ${status}`, agent });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 16. Suspend, Ban, or Flag User
+const moderateUserAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, value } = req.body; // action: "suspend" | "ban" | "flag", value: boolean
+
+    const user = await User.findById(id);
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+
+    if (action === "suspend") user.isSuspended = value;
+    if (action === "ban") user.isBanned = value;
+    if (action === "flag") user.isFlagged = value;
+
+    await user.save();
+    return res
+      .status(200)
+      .json({ success: true, message: `User ${action} status updated`, user });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   getMe,
   updateProfile,
@@ -473,4 +621,7 @@ module.exports = {
   onboardUser,
   upgradeUser,
   getUserProfile,
+  updateAgentRiskLevel,
+  updateAgentVerification,
+  moderateUserAccount,
 };

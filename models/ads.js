@@ -12,9 +12,22 @@ const AdSchema = new mongoose.Schema(
     dailyBudget: { type: Number, required: true },
     duration: { type: Number, required: true }, // duration in days
     adBudget: { type: Number, required: true }, // total budget (can be calculated or passed)
+
+    // --- ADDED FOR ITEM 19: Start & End Dates ---
+    startDate: { type: Date, required: true },
+    endDate: { type: Date, required: true },
+    // ---------------------------------------------
+
     status: {
       type: String,
-      enum: ["pending", "active", "completed", "paused"],
+      enum: [
+        "pending",
+        "approved",
+        "rejected",
+        "active",
+        "completed",
+        "paused",
+      ], // Added "approved" & "rejected" for Item 19
       default: "pending",
     },
     isPaid: { type: Boolean, default: false },

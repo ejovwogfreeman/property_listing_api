@@ -7,6 +7,29 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   isGoogleUser: { type: Boolean, default: false },
   role: { type: String, enum: ["user", "agent", "admin"], default: "user" },
+
+  // --- BUG 11: Agent Risk Level ---
+  riskLevel: {
+    type: String,
+    enum: ["none", "low", "medium", "high"],
+    default: "none",
+  },
+
+  // --- ITEM 15: Agent Verification Status ---
+  verificationStatus: {
+    type: String,
+    enum: ["none", "pending", "approved", "rejected"],
+    default: "none",
+  },
+
+  // --- ITEM 16: Suspend, Ban, and Flag on Users ---
+  isSuspended: { type: Boolean, default: false },
+  isBanned: { type: Boolean, default: false },
+  isFlagged: { type: Boolean, default: false },
+
+  // --- ITEM 17: Last-Active Time on Users ---
+  lastActive: { type: Date, default: Date.now },
+
   verificationCode: { type: Number, default: false },
   isOnboarding: { type: Boolean, default: false },
   isVerified: { type: Boolean, default: false },

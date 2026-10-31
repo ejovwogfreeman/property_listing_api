@@ -17,7 +17,15 @@ const createAd = async (req, res) => {
       });
     }
 
-    const { property, objective, dailyBudget, duration, adBudget } = req.body;
+    const {
+      property,
+      objective,
+      dailyBudget,
+      duration,
+      adBudget,
+      startDate,
+      endDate,
+    } = req.body;
     const userId = req.user._id;
 
     // Verify property exists and belongs to the agent
@@ -35,22 +43,30 @@ const createAd = async (req, res) => {
       });
     }
 
-    // Check if there is already an active or pending ad for this property
+    // Check if there is already an active or pending/approved ad for this property
     const existingAd = await Ad.findOne({
       property,
-      status: { $in: ["pending", "active"] },
+      status: { $in: ["pending", "approved", "active"] },
     });
 
     if (existingAd) {
       return res.status(400).json({
         success: false,
         message:
-          "An active or pending ad already exists for this property. You cannot create a new one until it completes or is removed.",
+          "An active, approved, or pending ad already exists for this property. You cannot create a new one until it completes or is removed.",
       });
     }
 
     // Calculate total adBudget automatically if not provided or to ensure accuracy
     const calculatedBudget = adBudget || dailyBudget * duration;
+
+    // Handle Start and End Dates (Item 19)
+    const adStartDate = startDate ? new Date(startDate) : new Date();
+    let adEndDate = endDate ? new Date(endDate) : new Date(adStartDate);
+
+    if (!endDate && duration) {
+      adEndDate.setDate(adStartDate.getDate() + Number(duration));
+    }
 
     const newAd = await Ad.create({
       user: userId,
@@ -59,29 +75,91 @@ const createAd = async (req, res) => {
       dailyBudget,
       duration,
       adBudget: calculatedBudget,
-      status: "pending", // Strictly initialized as pending
+      startDate: adStartDate,
+      endDate: adEndDate,
+      status: "pending", // Strictly initialized as pending awaiting admin approval
       isPaid: false,
     });
 
     // Populate property details for the response
     await newAd.populate("property");
 
-    // Notify user & admins
+    // Notify user
     await Notification.create({
       user: userId,
       title: "Ad Created",
-      message: `Your ad campaign for "${prop.title}" has been created as pending. Proceed to pay from your balance.`,
+      message: `Your ad campaign for "${prop.title}" has been created and is pending admin approval.`,
       meta: { adId: newAd._id },
     });
+
+    // Notify Admin
+    const adminUser = await User.findOne({ role: "admin" });
+    if (adminUser) {
+      await Notification.create({
+        user: adminUser._id,
+        title: "New Ad Pending Review",
+        message: `A new ad campaign for "${prop.title}" requires your approval.`,
+        meta: { adId: newAd._id },
+      });
+    }
 
     res.status(201).json({
       success: true,
       message:
-        "Ad created successfully as pending. Proceed to payment from your balance.",
+        "Ad created successfully as pending. Awaiting admin review and approval.",
       data: newAd,
     });
   } catch (err) {
     console.error("createAd error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Admin Review / Approval Step for Ads (Item 19)
+ * @route PATCH /api/ads/:id/review
+ */
+const reviewAd = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ success: false, message: "Unauthorized. Admin only." });
+    }
+
+    const { status } = req.body; // "approved" or "rejected"
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Use 'approved' or 'rejected'.",
+      });
+    }
+
+    const ad = await Ad.findById(req.params.id).populate("property");
+    if (!ad) {
+      return res.status(404).json({ success: false, message: "Ad not found" });
+    }
+
+    ad.status = status;
+    await ad.save();
+
+    // Notify agent/advertiser
+    await Notification.create({
+      user: ad.user,
+      title: `Ad ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      message: `Your ad campaign for "${ad.property?.title}" has been ${status} by admin.`,
+      meta: { adId: ad._id },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Ad successfully ${status}`,
+      data: ad,
+    });
+  } catch (err) {
+    console.error("reviewAd error:", err);
     res
       .status(500)
       .json({ success: false, message: "Server error", error: err.message });
@@ -104,6 +182,14 @@ const payForAd = async (req, res) => {
       return res
         .status(403)
         .json({ success: false, message: "Not authorized" });
+    }
+
+    // Ensure ad has been approved by admin before payment is allowed
+    if (ad.status !== "approved") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot pay for ad. Current status is '${ad.status}'. It must be approved by an admin first.`,
+      });
     }
 
     if (ad.isPaid) {
@@ -130,7 +216,7 @@ const payForAd = async (req, res) => {
     }
 
     // Deduct from wallet & save user
-    user.balance = currentBalance - ad.adBudget; // change to user.walletBalance if applicable
+    user.balance = currentBalance - ad.adBudget;
     await user.save();
 
     // Update ad payment details and automatically set status to active upon payment success
@@ -144,7 +230,7 @@ const payForAd = async (req, res) => {
     await Notification.create({
       user: ad.user,
       title: "Ad Payment Successful & Activated",
-      message: `Successfully paid ${ad.adBudget} from your balance. Your ad is now active!`,
+      message: `Successfully paid ${ad.adBudget} from your balance. Your approved ad is now active!`,
       meta: { adId: ad._id },
     });
 
@@ -230,8 +316,16 @@ const getAd = async (req, res) => {
  */
 const updateAd = async (req, res) => {
   try {
-    const { objective, dailyBudget, duration, adBudget, status, pauseReason } =
-      req.body;
+    const {
+      objective,
+      dailyBudget,
+      duration,
+      adBudget,
+      status,
+      pauseReason,
+      startDate,
+      endDate,
+    } = req.body;
 
     const ad = await Ad.findById(req.params.id);
     if (!ad) {
@@ -247,8 +341,15 @@ const updateAd = async (req, res) => {
         .json({ success: false, message: "Not authorized" });
     }
 
-    // Validate status input if provided against allowed schema values
-    const allowedStatuses = ["pending", "active", "completed", "paused"];
+    // Validate status input against allowed schema values
+    const allowedStatuses = [
+      "pending",
+      "approved",
+      "rejected",
+      "active",
+      "completed",
+      "paused",
+    ];
     if (status !== undefined && !allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -264,7 +365,7 @@ const updateAd = async (req, res) => {
 
     // If the user is the owner (agent)
     if (isOwner) {
-      // Handle agent status updates: strictly allowed only between "active" and "paused"
+      // Handle agent status updates: toggle between active and paused (only if paid/approved)
       if (status !== undefined) {
         const isValidToggle =
           (ad.status === "active" && status === "paused") ||
@@ -274,17 +375,23 @@ const updateAd = async (req, res) => {
           return res.status(403).json({
             success: false,
             message:
-              "Agents can only toggle status between 'active' and 'paused'.",
+              "Agents can only toggle status between 'active' and 'paused'. Use the review endpoint for approvals.",
           });
         }
         ad.status = status;
-
-        // If agent pauses it, they can optionally provide or clear a pauseReason, or you can manage it here
         if (pauseReason !== undefined) ad.pauseReason = pauseReason;
       }
 
       // Campaign field modifications (allowed only if unpaid)
-      if (ad.isPaid && (objective || dailyBudget || duration || adBudget)) {
+      if (
+        ad.isPaid &&
+        (objective ||
+          dailyBudget ||
+          duration ||
+          adBudget ||
+          startDate ||
+          endDate)
+      ) {
         return res.status(400).json({
           success: false,
           message:
@@ -295,6 +402,14 @@ const updateAd = async (req, res) => {
       if (objective !== undefined) ad.objective = objective;
       if (dailyBudget !== undefined) ad.dailyBudget = dailyBudget;
       if (duration !== undefined) ad.duration = duration;
+      if (startDate !== undefined) ad.startDate = new Date(startDate);
+      if (endDate !== undefined) ad.endDate = new Date(endDate);
+
+      if (startDate !== undefined && duration !== undefined && !endDate) {
+        let calculatedEnd = new Date(startDate);
+        calculatedEnd.setDate(calculatedEnd.getDate() + Number(duration));
+        ad.endDate = calculatedEnd;
+      }
 
       if (dailyBudget !== undefined || duration !== undefined) {
         ad.adBudget = adBudget || ad.dailyBudget * ad.duration;
@@ -355,6 +470,7 @@ const deleteAd = async (req, res) => {
 
 module.exports = {
   createAd,
+  reviewAd,
   payForAd,
   getAds,
   getAd,

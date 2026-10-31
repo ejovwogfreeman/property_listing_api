@@ -67,13 +67,22 @@ const requestPurchase = async (req, res) => {
       });
     }
 
-    // Create purchase record (default status is "none")
+    const totalPrice =
+      property.price +
+      (property.escrowFee || 0) +
+      (property.serviceCharge || 0);
+
+    // Calculate platform fee (e.g., 5% platform cut on the purchase price)
+    const platformFee = totalPrice * 0.05;
+
+    // Create purchase record with platform fee (Item 18)
     const purchase = await Purchase.create({
       property: property._id,
       buyer: userId,
       owner: property.owner,
       inspection: inspection._id,
-      price: property.price + property.escrowFee + property.serviceCharge,
+      price: totalPrice,
+      platformFee: platformFee, // <--- SAVED HERE
       status: "none",
     });
 
@@ -219,7 +228,8 @@ const verifyPurchasePayment = async (req, res) => {
         buyer: purchase.buyer,
         seller: purchase.owner._id || purchase.owner,
         amount: purchase.price,
-        status: "pending",
+        platformFee: purchase.platformFee || 0, // <--- Track platform fee on escrow too
+        status: "on_hold",
         type: "purchase",
       });
     }
@@ -315,7 +325,6 @@ const schedulePurchaseHandover = async (req, res) => {
     }
 
     // Update status and timestamp depending on whether it's a first-time schedule or a re-schedule
-    const isReschedule = purchase.status === "handover_rescheduled";
     purchase.scheduledDate = scheduledDate;
     purchase.status = "handover_scheduled";
     purchase.scheduledAt = new Date();
@@ -571,7 +580,7 @@ const changePurchaseStatus = async (req, res) => {
     const { purchaseId } = req.params;
     const { status } = req.body;
 
-    // Allowed status transitions matching Purchase Model enum
+    // Allowed status transitions matching Purchase Model enum + cancellation handling
     const allowedStatuses = [
       "none",
       "property_payment_made",
@@ -581,6 +590,7 @@ const changePurchaseStatus = async (req, res) => {
       "handover_confirmed",
       "handover_completed",
       "funds_released",
+      "purchase_cancelled", // Added to handle refunds properly
     ];
 
     if (!allowedStatuses.includes(status)) {
@@ -613,18 +623,27 @@ const changePurchaseStatus = async (req, res) => {
       purchase.completedAt = new Date();
     }
 
-    // If funds are released, update flags and sync escrow status
+    // Find corresponding escrow record
+    const escrow = await Escrow.findOne({
+      property: purchase.property,
+      buyer: purchase.buyer,
+      type: "purchase",
+    });
+
+    // If funds are released, sync escrow status to "released"
     if (status === "funds_released") {
       purchase.feeReleased = true;
       purchase.completedAt = purchase.completedAt || new Date();
 
-      const escrow = await Escrow.findOne({
-        property: purchase.property,
-        buyer: purchase.buyer,
-        type: "purchase",
-      });
       if (escrow) {
-        escrow.status = "released";
+        escrow.status = "released"; // Matches Escrow schema enum
+        await escrow.save();
+      }
+    }
+    // If purchase is cancelled, sync escrow status to "refunded"
+    else if (status === "purchase_cancelled") {
+      if (escrow) {
+        escrow.status = "refunded"; // Matches Escrow schema enum
         await escrow.save();
       }
     }

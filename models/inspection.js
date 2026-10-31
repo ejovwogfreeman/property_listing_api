@@ -22,6 +22,11 @@ const InspectionSchema = new Schema(
       default: "none",
     },
     fee: { type: Number, required: true },
+
+    // --- ITEM 18: Platform Fee Recorded per Inspection ---
+    platformFee: { type: Number, default: 0 },
+    // ----------------------------------------------------
+
     // 🔑 Paystack reference
     reference: {
       type: String,
@@ -29,7 +34,7 @@ const InspectionSchema = new Schema(
     },
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin
     feePaid: { type: Boolean, default: false },
-    feeReleased: { type: Boolean, default: false }, // add this
+    feeReleased: { type: Boolean, default: false },
     scheduledDate: { type: Date, default: Date.now },
     initializedAt: { type: Date },
     paidAt: { type: Date },

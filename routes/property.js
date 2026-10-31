@@ -9,6 +9,10 @@ const {
   updateProperty,
   deleteProperty,
   changePropertyStatus,
+  flagProperty,
+  addAdminNote,
+  updateAdminNote,
+  deleteAdminNote,
 } = require("../controllers/property");
 const { protect, authorize } = require("../middlewares/auth");
 const { uploadPropertyFiles, uploadNone } = require("../middlewares/upload");
@@ -68,5 +72,17 @@ router.put(
   uploadNone,
   changePropertyStatus,
 );
+
+// PATCH: Flag or unflag a property listing (Admin only)
+router.patch("/:id/flag", protect, authorize("admin"), flagProperty);
+
+// Add a note
+router.post("/:propertyId/notes", protect, addAdminNote);
+
+// Update a note
+router.patch("/:propertyId/notes/:noteId", protect, updateAdminNote);
+
+// Delete a note
+router.delete("/:propertyId/notes/:noteId", protect, deleteAdminNote);
 
 module.exports = router;

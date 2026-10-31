@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const propertySchema = new mongoose.Schema(
   {
+    code: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     title: {
       type: String,
       required: true,
@@ -29,17 +34,14 @@ const propertySchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: ["land", "apartment", "duplex", "bungalow"],
-      // Helps differentiate land vs apartment/house
     },
     listingType: {
       type: String,
       required: true,
       enum: ["rent", "sale"],
-      // Helps differentiate land vs apartment/house
     },
     landSize: {
       type: String,
-      // Land-only field
     },
     landUnit: {
       type: String,
@@ -67,15 +69,12 @@ const propertySchema = new mongoose.Schema(
     },
     bedroom: {
       type: Number,
-      // Apartment/house-only field
     },
     bathroom: {
       type: Number,
-      // Apartment/house-only field
     },
     kitchen: {
       type: Number,
-      // Apartment/house-only field
     },
     description: {
       type: String,
@@ -92,14 +91,45 @@ const propertySchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      // enum: ["pending", "paid", "completed", "cancelled"],
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
+    // --- BUG 8: Flagging Fields ---
+    isFlagged: {
+      type: Boolean,
+      default: false,
+    },
+    flagReason: {
+      type: String,
+      default: null,
+    },
+    flaggedAt: {
+      type: Date,
+      default: null,
+    },
+    // --- BUG 9: Admin Notes ---
+    adminNotes: [
+      {
+        note: { type: String, required: true },
+        author: {
+          _id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+          name: { type: String },
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    // --- BUG 10: Status History ---
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        at: { type: Date, default: Date.now },
+        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
     owner: {
       _id: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User", // or 'Agent' depending on your system
+        ref: "User",
         required: true,
       },
       name: {
@@ -124,7 +154,27 @@ const propertySchema = new mongoose.Schema(
       },
     },
   },
-  { timestamps: true }, // Automatically adds createdAt and updatedAt
+  { timestamps: true },
 );
+
+// --- PRE-SAVE HOOK: Auto-generate Code & Track Status History ---
+propertySchema.pre("save", async function (next) {
+  // Generate human-readable code if it doesn't exist (Bug 12)
+  if (!this.code) {
+    const count = await mongoose.model("Property").countDocuments();
+    this.code = `PROP-${String(count + 1).padStart(4, "0")}`;
+  }
+
+  // If status is modified or it's a new document, push to status history (Bug 10)
+  if (this.isNew || this.isModified("status")) {
+    this.statusHistory.push({
+      status: this.status,
+      at: new Date(),
+      by: this.owner._id, // defaults to owner on creation, or can be overwritten in controllers during admin actions
+    });
+  }
+
+  next();
+});
 
 module.exports = mongoose.model("Property", propertySchema);

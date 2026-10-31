@@ -8,7 +8,7 @@ const EscrowSchema = new Schema({
   amount: Number,
   status: {
     type: String,
-    enum: ["on_hold", "released"],
+    enum: ["on_hold", "released", "refunded"],
     default: "on_hold",
   },
   type: String,
