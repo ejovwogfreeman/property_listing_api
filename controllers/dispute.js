@@ -33,6 +33,7 @@ const createDispute = async (req, res) => {
       inspectionId,
       category,
       description,
+      priority,
     } = req.body;
     const userId = req.user._id;
 
@@ -51,7 +52,6 @@ const createDispute = async (req, res) => {
       });
     }
 
-    // 🛠️ Fixed: Properly processes multer files from req.files instead of req.body
     const disputeFiles = await extractAndUploadFiles(req.files);
 
     const dispute = await Dispute.create({
@@ -63,6 +63,7 @@ const createDispute = async (req, res) => {
       category: category || "other",
       description,
       disputeFiles,
+      priority: priority || "medium",
       openedAt: new Date(),
     });
 
@@ -171,12 +172,12 @@ const addDisputeMessage = async (req, res) => {
 };
 
 // ---------------------------
-// 3️⃣ Update Dispute Status / Resolve
+// 3️⃣ Update Dispute Status, Outcome & Manual Payout Account
 // ---------------------------
 const updateDisputeStatus = async (req, res) => {
   try {
     const { disputeId } = req.params;
-    const { status, resolutionNotes } = req.body;
+    const { status, resolutionNotes, resolution, payoutAccount } = req.body;
 
     const dispute = await Dispute.findById(disputeId);
     if (!dispute) {
@@ -187,6 +188,8 @@ const updateDisputeStatus = async (req, res) => {
 
     if (status) dispute.status = status;
     if (resolutionNotes) dispute.resolutionNotes = resolutionNotes;
+    if (resolution) dispute.resolution = resolution;
+    if (payoutAccount) dispute.payoutAccount = payoutAccount;
 
     dispute.resolvedBy = req.user._id;
     if (!dispute.admin) {
@@ -201,23 +204,86 @@ const updateDisputeStatus = async (req, res) => {
 
     await dispute.save();
 
+    const populatedDispute = await Dispute.findById(dispute._id)
+      .populate("property", "title images location price")
+      .populate("user", "name email phoneNumber role profilePicture")
+      .populate("agent", "name email phoneNumber role profilePicture")
+      .populate("admin", "name email phoneNumber role profilePicture")
+      .populate("purchase")
+      .populate("inspection");
+
     const participants = [dispute.user, dispute.agent];
     for (let participantId of participants) {
-      await Notification.create({
-        user: participantId,
-        title: "Dispute Status Updated",
-        message: `Your dispute (${dispute.referenceId}) status changed to: ${status.replace("_", " ")}.`,
-        meta: { disputeId: dispute._id },
-      });
+      if (participantId) {
+        await Notification.create({
+          user: participantId,
+          title: "Dispute Status Updated",
+          message: `Your dispute (${dispute.referenceId}) status changed to: ${status.replace("_", " ")}.`,
+          meta: { disputeId: dispute._id },
+        });
+      }
     }
 
     res.json({
       success: true,
-      message: "Dispute status updated successfully.",
-      dispute,
+      message: "Dispute status and resolution updated successfully.",
+      dispute: populatedDispute,
     });
   } catch (err) {
     console.error("updateDisputeStatus error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 3.1 Update Dispute Priority (Admin Only)
+// ---------------------------
+const updateDisputePriority = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Access denied. Only administrators can update dispute priority.",
+      });
+    }
+
+    const { disputeId } = req.params;
+    const { priority } = req.body;
+
+    const allowedPriorities = ["low", "medium", "high"];
+    if (!priority || !allowedPriorities.includes(priority)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid or missing priority. Must be 'low', 'medium', or 'high'.",
+      });
+    }
+
+    const dispute = await Dispute.findByIdAndUpdate(
+      disputeId,
+      { priority },
+      { new: true },
+    )
+      .populate("property", "title images location price")
+      .populate("user", "name email phoneNumber role profilePicture")
+      .populate("agent", "name email phoneNumber role profilePicture")
+      .populate("admin", "name email phoneNumber role profilePicture");
+
+    if (!dispute) {
+      return res.status(404).json({
+        success: false,
+        message: "Dispute not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Dispute priority successfully updated to ${priority}`,
+      dispute,
+    });
+  } catch (err) {
+    console.error("updateDisputePriority error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -229,12 +295,11 @@ const getDisputeDetails = async (req, res) => {
   try {
     const { disputeId } = req.params;
 
-    // 🛠️ Fixed: Populated purchase and inspection so references can be used on frontend
     const dispute = await Dispute.findById(disputeId)
-      .populate("property", "title images price location")
-      .populate("user", "name email phone")
-      .populate("agent", "name email phone")
-      .populate("admin", "name email")
+      .populate("property", "title images location price")
+      .populate("user", "name email phoneNumber role profilePicture")
+      .populate("agent", "name email phoneNumber role profilePicture")
+      .populate("admin", "name email phoneNumber role profilePicture")
       .populate("purchase")
       .populate("inspection");
 
@@ -267,7 +332,7 @@ const getMyDisputes = async (req, res) => {
     const userId = req.user._id;
     const disputes = await Dispute.find({ user: userId })
       .populate("property", "title images location price")
-      .populate("agent", "name email phone")
+      .populate("agent", "name email phoneNumber role profilePicture")
       .populate("purchase")
       .populate("inspection")
       .sort({ createdAt: -1 });
@@ -287,7 +352,7 @@ const getAgentDisputes = async (req, res) => {
     const agentId = req.user._id;
     const disputes = await Dispute.find({ agent: agentId })
       .populate("property", "title images location price")
-      .populate("user", "name email phone")
+      .populate("user", "name email phoneNumber role profilePicture")
       .populate("purchase")
       .populate("inspection")
       .sort({ createdAt: -1 });
@@ -310,10 +375,10 @@ const getAllDisputes = async (req, res) => {
     if (adminId) filter.admin = adminId;
 
     const disputes = await Dispute.find(filter)
-      .populate("property", "title images location")
-      .populate("user", "name email")
-      .populate("agent", "name email")
-      .populate("admin", "name email")
+      .populate("property", "title images location price")
+      .populate("user", "name email phoneNumber role profilePicture")
+      .populate("agent", "name email phoneNumber role profilePicture")
+      .populate("admin", "name email phoneNumber role profilePicture")
       .populate("purchase")
       .populate("inspection")
       .sort({ createdAt: -1 });
@@ -329,6 +394,7 @@ module.exports = {
   createDispute,
   addDisputeMessage,
   updateDisputeStatus,
+  updateDisputePriority,
   getDisputeDetails,
   getMyDisputes,
   getAgentDisputes,

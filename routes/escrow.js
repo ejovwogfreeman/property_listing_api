@@ -7,6 +7,7 @@ const {
   getEscrowById,
   getAgentEscrows,
   changeEscrowStatus,
+  refundEscrow,
 } = require("../controllers/escrow");
 const { protect, authorize } = require("../middlewares/auth");
 
@@ -19,6 +20,13 @@ router.patch(
   authorize("admin"),
   upload.none(),
   changeEscrowStatus,
+);
+router.patch(
+  "/:id/refund",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  refundEscrow,
 );
 
 module.exports = router;

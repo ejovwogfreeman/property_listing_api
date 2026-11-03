@@ -18,14 +18,12 @@ const requestPurchase = async (req, res) => {
     const { propertyId } = req.body;
     const userId = req.user._id;
 
-    // Fetch property
     const property = await Property.findById(propertyId);
     if (!property)
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
 
-    // Check if user has completed inspection (Prerequisite)
     const inspection = await Inspection.findOne({
       property: propertyId,
       user: userId,
@@ -38,14 +36,12 @@ const requestPurchase = async (req, res) => {
         message: "You must complete and pay for inspection first",
       });
 
-    // Check for existing purchase request
     const existingPurchase = await Purchase.findOne({
       property: propertyId,
       buyer: userId,
     });
 
     if (existingPurchase) {
-      // If fee is NOT paid yet, return the existing ID so the user can resume payment seamlessly
       if (!existingPurchase.feePaid) {
         return res.status(200).json({
           success: true,
@@ -57,7 +53,6 @@ const requestPurchase = async (req, res) => {
         });
       }
 
-      // If already paid/processed, prevent duplicate requests
       return res.status(400).json({
         success: false,
         message:
@@ -72,21 +67,19 @@ const requestPurchase = async (req, res) => {
       (property.escrowFee || 0) +
       (property.serviceCharge || 0);
 
-    // Calculate platform fee (e.g., 5% platform cut on the purchase price)
-    const platformFee = totalPrice * 0.05;
+    // Platform fee equals the escrow fee
+    const platformFee = property.escrowFee || 0;
 
-    // Create purchase record with platform fee (Item 18)
     const purchase = await Purchase.create({
       property: property._id,
       buyer: userId,
       owner: property.owner,
       inspection: inspection._id,
       price: totalPrice,
-      platformFee: platformFee, // <--- SAVED HERE
+      platformFee: platformFee,
       status: "none",
     });
 
-    // Notify buyer
     await Notification.create({
       user: userId,
       title: "Purchase Requested",
@@ -94,7 +87,6 @@ const requestPurchase = async (req, res) => {
       meta: { purchaseId: purchase._id },
     });
 
-    // Socket.io event
     if (global.io) {
       global.io.emit("notification", {
         type: "purchase_requested",
@@ -124,7 +116,6 @@ const initializePurchasePayment = async (req, res) => {
     const { purchaseId, callback_url } = req.body;
     const buyerId = req.user._id;
 
-    // Find purchase
     const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase)
       return res.status(404).json({ message: "Purchase not found" });
@@ -135,13 +126,11 @@ const initializePurchasePayment = async (req, res) => {
     if (purchase.feePaid)
       return res.status(400).json({ message: "Purchase already paid" });
 
-    // Generate Paystack reference
     const reference = crypto.randomBytes(16).toString("hex");
     purchase.reference = reference;
     purchase.initializedAt = new Date();
     await purchase.save();
 
-    // Initialize Paystack
     const init = await initializeTransaction(
       req.user.email,
       purchase.price * 100,
@@ -149,7 +138,6 @@ const initializePurchasePayment = async (req, res) => {
       callback_url,
     );
 
-    // Notify Buyer
     await Notification.create({
       user: buyerId,
       title: "Purchase Payment Initiated",
@@ -157,7 +145,6 @@ const initializePurchasePayment = async (req, res) => {
       meta: { purchaseId },
     });
 
-    // Notify Seller
     await Notification.create({
       user: purchase.owner._id || purchase.owner,
       title: "Purchase Payment Started",
@@ -165,7 +152,6 @@ const initializePurchasePayment = async (req, res) => {
       meta: { purchaseId },
     });
 
-    // Notify Admin
     const adminUser = await User.findOne({ role: "admin" });
     if (adminUser) {
       await Notification.create({
@@ -206,20 +192,16 @@ const verifyPurchasePayment = async (req, res) => {
   try {
     const { reference, purchaseId } = req.body;
 
-    // Verify Paystack transaction
     const verification = await verifyTransaction(reference);
     if (!verification || verification.data.status !== "success")
       return res.status(400).json({ message: "Payment not successful" });
 
-    // Find purchase
     const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase)
       return res.status(404).json({ message: "Purchase not found" });
 
-    // Get admin
     const adminUser = await User.findOne({ role: "admin" });
 
-    // CREATE ESCROW UPON SUCCESSFUL PAYMENT VERIFICATION
     let escrow = await Escrow.findOne({ reference });
     if (!escrow) {
       escrow = await Escrow.create({
@@ -227,21 +209,20 @@ const verifyPurchasePayment = async (req, res) => {
         property: purchase.property,
         buyer: purchase.buyer,
         seller: purchase.owner._id || purchase.owner,
+        purchase: purchase._id, // <--- Linked exact purchase reference[cite: 3]
         amount: purchase.price,
-        platformFee: purchase.platformFee || 0, // <--- Track platform fee on escrow too
+        platformFee: purchase.platformFee || 0,
         status: "on_hold",
         type: "purchase",
       });
     }
 
-    // UPDATE PURCHASE & STAMP paidAt
     purchase.feePaid = true;
     purchase.escrowHeldBy = adminUser ? adminUser._id : null;
     purchase.status = "property_payment_made";
-    purchase.paidAt = new Date(); // 👈 Timestamp tracking
+    purchase.paidAt = new Date();
     await purchase.save();
 
-    // NOTIFICATIONS
     await Notification.create({
       user: purchase.buyer,
       title: "Purchase Payment Verified",
@@ -324,13 +305,11 @@ const schedulePurchaseHandover = async (req, res) => {
       });
     }
 
-    // Update status and timestamp depending on whether it's a first-time schedule or a re-schedule
     purchase.scheduledDate = scheduledDate;
     purchase.status = "handover_scheduled";
     purchase.scheduledAt = new Date();
     await purchase.save();
 
-    // Notify Buyer
     await Notification.create({
       user: purchase.buyer,
       title: "Handover Date Scheduled",
@@ -377,7 +356,6 @@ const reschedulePurchaseHandover = async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    // Allow rescheduling if a handover is currently scheduled
     if (purchase.status !== "handover_scheduled") {
       return res.status(400).json({
         success: false,
@@ -386,10 +364,9 @@ const reschedulePurchaseHandover = async (req, res) => {
       });
     }
 
-    // Shift to handover_rescheduled enum status
     purchase.status = "handover_rescheduled";
     purchase.scheduledDate = null;
-    purchase.scheduledAt = null; // Clear out old schedule timestamp so a fresh one can be set
+    purchase.scheduledAt = null;
     await purchase.save();
 
     const sellerId = purchase.owner?._id || purchase.owner;
@@ -438,7 +415,6 @@ const confirmPurchaseHandover = async (req, res) => {
         .json({ success: false, message: "Purchase not found" });
     }
 
-    // Ensure only the buyer who requested it can confirm/accept the schedule
     if (purchase.buyer?.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -459,14 +435,12 @@ const confirmPurchaseHandover = async (req, res) => {
     purchase.confirmedAt = new Date();
     await purchase.save();
 
-    // Update associated escrow status to approved
+    // Query escrow by exact purchase ID reference[cite: 3]
     let escrow = await Escrow.findOne({
-      property: purchase.property?._id,
-      buyer: purchase.buyer,
-      type: "purchase",
+      purchase: purchase._id,
     });
     if (escrow) {
-      escrow.status = "approved";
+      escrow.status = "on_hold";
       await escrow.save();
     }
 
@@ -580,7 +554,6 @@ const changePurchaseStatus = async (req, res) => {
     const { purchaseId } = req.params;
     const { status } = req.body;
 
-    // Allowed status transitions matching Purchase Model enum + cancellation handling
     const allowedStatuses = [
       "none",
       "property_payment_made",
@@ -590,7 +563,7 @@ const changePurchaseStatus = async (req, res) => {
       "handover_confirmed",
       "handover_completed",
       "funds_released",
-      "purchase_cancelled", // Added to handle refunds properly
+      "purchase_cancelled",
     ];
 
     if (!allowedStatuses.includes(status)) {
@@ -607,7 +580,6 @@ const changePurchaseStatus = async (req, res) => {
         .json({ success: false, message: "Purchase not found" });
     }
 
-    // Update status and dynamically set corresponding timestamps
     purchase.status = status;
 
     if (status === "property_payment_made" && !purchase.paidAt) {
@@ -623,27 +595,28 @@ const changePurchaseStatus = async (req, res) => {
       purchase.completedAt = new Date();
     }
 
-    // Find corresponding escrow record
+    // Query escrow by exact purchase reference[cite: 3]
     const escrow = await Escrow.findOne({
-      property: purchase.property,
-      buyer: purchase.buyer,
-      type: "purchase",
+      purchase: purchase._id,
     });
 
-    // If funds are released, sync escrow status to "released"
     if (status === "funds_released") {
       purchase.feeReleased = true;
       purchase.completedAt = purchase.completedAt || new Date();
 
       if (escrow) {
-        escrow.status = "released"; // Matches Escrow schema enum
+        escrow.status = "released";
+        escrow.releasedAt = new Date();
+        escrow.releasedBy = req.user._id; // Admin user ID
+        if (req.body.reason) escrow.reason = req.body.reason;
         await escrow.save();
       }
-    }
-    // If purchase is cancelled, sync escrow status to "refunded"
-    else if (status === "purchase_cancelled") {
+    } else if (status === "purchase_cancelled") {
       if (escrow) {
-        escrow.status = "refunded"; // Matches Escrow schema enum
+        escrow.status = "refunded";
+        escrow.releasedAt = new Date();
+        escrow.releasedBy = req.user._id;
+        if (req.body.reason) escrow.reason = req.body.reason;
         await escrow.save();
       }
     }
@@ -652,7 +625,6 @@ const changePurchaseStatus = async (req, res) => {
 
     const notificationMessage = `Your purchase status has been updated to: ${status.replace(/_/g, " ")}.`;
 
-    // Notify Buyer
     await Notification.create({
       user: purchase.buyer,
       title: "Purchase Status Updated",
@@ -660,7 +632,6 @@ const changePurchaseStatus = async (req, res) => {
       meta: { purchaseId, status },
     });
 
-    // Notify Seller/Owner
     const sellerId = purchase.owner?._id || purchase.owner;
     if (sellerId) {
       await Notification.create({

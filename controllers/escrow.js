@@ -3,16 +3,19 @@ const User = require("../models/user");
 const Notification = require("../models/notification");
 const Inspection = require("../models/inspection");
 const Purchase = require("../models/purchase");
+const Transaction = require("../models/transaction");
 
 // ---------------------------
 // Get All Escrows (Admin Only)
 // ---------------------------
+
 const getAllEscrows = async (req, res) => {
   try {
     const escrows = await Escrow.find()
       .populate("property", "title location price")
       .populate("buyer", "name email role")
       .populate("seller", "name email role")
+      .populate("releasedBy", "name email role")
       .sort({ createdAt: -1 });
 
     return res.json({
@@ -36,7 +39,10 @@ const getEscrowById = async (req, res) => {
     const escrow = await Escrow.findById(id)
       .populate("property", "title location price")
       .populate("buyer", "name email role")
-      .populate("seller", "name email role");
+      .populate("seller", "name email role")
+      .populate("purchase")
+      .populate("inspection")
+      .populate("releasedBy", "name email role");
 
     if (!escrow) {
       return res
@@ -65,6 +71,7 @@ const getAgentEscrows = async (req, res) => {
     const escrows = await Escrow.find({ seller: agentId })
       .populate("property", "title location price")
       .populate("buyer", "name email role")
+      .populate("releasedBy", "name email role")
       .sort({ createdAt: -1 });
 
     const totalVolume = escrows.reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -98,7 +105,8 @@ const changeEscrowStatus = async (req, res) => {
       });
     }
 
-    const { escrowId, status } = req.body;
+    const { escrowId, status, reason, override } = req.body;
+    const adminId = req.user._id;
 
     if (!escrowId || !status) {
       return res
@@ -122,6 +130,43 @@ const changeEscrowStatus = async (req, res) => {
 
     const previousStatus = escrow.status;
 
+    // 🛡️ Check for open disputes before allowing release
+    if (status === "released" && previousStatus !== "released") {
+      let openDispute = null;
+
+      // Query for an open dispute linked to the exact purchase or inspection
+      if (escrow.purchase) {
+        openDispute = await Dispute.findOne({
+          purchase: escrow.purchase,
+          status: { $in: ["open", "pending", "under_review"] }, // Adjust statuses based on your Dispute schema enum
+        });
+      } else if (escrow.inspection) {
+        openDispute = await Dispute.findOne({
+          inspection: escrow.inspection,
+          status: { $in: ["open", "pending", "under_review"] },
+        });
+      } else {
+        // Fallback query by property/buyer if IDs are missing
+        openDispute = await Dispute.findOne({
+          property: escrow.property,
+          buyer: escrow.buyer,
+          status: { $in: ["open", "pending", "under_review"] },
+        });
+      }
+
+      // If an open dispute exists, reject unless explicit override and reason are provided
+      if (openDispute) {
+        if (!override || !reason) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Cannot release escrow: An open dispute exists for this transaction. An explicit admin override flag and reason are required to proceed.",
+            disputeId: openDispute._id,
+          });
+        }
+      }
+    }
+
     // 💰 If status is changing TO "released" (and wasn't already released)
     if (status === "released" && previousStatus !== "released") {
       const seller = await User.findById(escrow.seller);
@@ -143,26 +188,37 @@ const changeEscrowStatus = async (req, res) => {
         meta: { escrowId: escrow._id },
       });
 
-      // 🔍 Find and update the related Inspection or Purchase feeReleased status
-      if (escrow.type === "inspection") {
-        const inspection = await Inspection.findOne({
-          property: escrow.property,
-          user: escrow.buyer,
+      // 🔍 Update exact linked deal (Purchase or Inspection) feeReleased status
+      if (escrow.inspection) {
+        await Inspection.findByIdAndUpdate(escrow.inspection, {
+          feeReleased: true,
         });
-        if (inspection) {
-          inspection.feeReleased = true;
-          await inspection.save();
-        }
-      } else if (escrow.type === "purchase") {
-        const purchase = await Purchase.findOne({
-          property: escrow.property,
-          buyer: escrow.buyer,
+      } else if (escrow.purchase) {
+        await Purchase.findByIdAndUpdate(escrow.purchase, {
+          feeReleased: true,
         });
-        if (purchase) {
-          purchase.feeReleased = true;
-          await purchase.save();
+      } else {
+        if (escrow.type === "inspection") {
+          await Inspection.findOneAndUpdate(
+            { property: escrow.property, user: escrow.buyer },
+            { feeReleased: true },
+          );
+        } else if (escrow.type === "purchase") {
+          await Purchase.findOneAndUpdate(
+            { property: escrow.property, buyer: escrow.buyer },
+            { feeReleased: true },
+          );
         }
       }
+
+      // Record release audit metadata (including override note if applicable)
+      escrow.releasedAt = new Date();
+      escrow.releasedBy = adminId;
+      escrow.reason =
+        reason ||
+        (override
+          ? "Released via admin override despite open dispute"
+          : "Funds released by admin");
     }
 
     // 🔄 Reverse safety: If it was released and admin changes it back, reverse balance & feeReleased
@@ -173,25 +229,32 @@ const changeEscrowStatus = async (req, res) => {
         await seller.save();
       }
 
-      if (escrow.type === "inspection") {
-        const inspection = await Inspection.findOne({
-          property: escrow.property,
-          user: escrow.buyer,
+      if (escrow.inspection) {
+        await Inspection.findByIdAndUpdate(escrow.inspection, {
+          feeReleased: false,
         });
-        if (inspection) {
-          inspection.feeReleased = false;
-          await inspection.save();
-        }
-      } else if (escrow.type === "purchase") {
-        const purchase = await Purchase.findOne({
-          property: escrow.property,
-          buyer: escrow.buyer,
+      } else if (escrow.purchase) {
+        await Purchase.findByIdAndUpdate(escrow.purchase, {
+          feeReleased: false,
         });
-        if (purchase) {
-          purchase.feeReleased = false;
-          await purchase.save();
+      } else {
+        if (escrow.type === "inspection") {
+          await Inspection.findOneAndUpdate(
+            { property: escrow.property, user: escrow.buyer },
+            { feeReleased: false },
+          );
+        } else if (escrow.type === "purchase") {
+          await Purchase.findOneAndUpdate(
+            { property: escrow.property, buyer: escrow.buyer },
+            { feeReleased: false },
+          );
         }
       }
+
+      // Clear audit metadata on reversal
+      escrow.releasedAt = null;
+      escrow.releasedBy = null;
+      escrow.reason = null;
     }
 
     // Update escrow status
@@ -209,9 +272,120 @@ const changeEscrowStatus = async (req, res) => {
   }
 };
 
+// ---------------------------
+// 🛡️ Admin Refund Escrow (PATCH /escrow/:id/refund)
+// ---------------------------
+
+const refundEscrow = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = req.user._id;
+
+    // 1. Fetch the escrow record
+    const escrow = await Escrow.findById(id);
+    if (!escrow) {
+      return res.status(404).json({
+        success: false,
+        message: "Escrow record not found.",
+      });
+    }
+
+    // 2. Idempotency Check: Prevent repeated/double crediting
+    if (escrow.status === "refunded") {
+      return res.status(400).json({
+        success: false,
+        message: "This escrow transaction has already been refunded.",
+        escrow,
+      });
+    }
+
+    // 3. Atomically credit the buyer's wallet balance
+    const buyer = await User.findByIdAndUpdate(
+      escrow.buyer,
+      { $inc: { balance: escrow.amount } },
+      { new: true },
+    );
+
+    if (!buyer) {
+      return res.status(404).json({
+        success: false,
+        message: "Buyer associated with this escrow was not found.",
+      });
+    }
+
+    // 4. Update the Escrow document with status and audit metadata
+    escrow.status = "refunded";
+    escrow.releasedAt = new Date();
+    escrow.releasedBy = adminId;
+    escrow.reason = reason || "Refund processed by admin";
+    await escrow.save();
+
+    // 5. Clear exact linked deal's feeReleased status and set cancellation status
+    if (escrow.purchase) {
+      await Purchase.findByIdAndUpdate(escrow.purchase, {
+        status: "purchase_cancelled",
+        feeReleased: false,
+      });
+    } else if (escrow.inspection) {
+      await Inspection.findByIdAndUpdate(escrow.inspection, {
+        status: "inspection_cancelled",
+        feeReleased: false,
+      });
+    } else if (escrow.property && escrow.buyer) {
+      // Fallback for legacy escrows missing exact deal references
+      if (escrow.type === "purchase") {
+        await Purchase.findOneAndUpdate(
+          { property: escrow.property, buyer: escrow.buyer },
+          { status: "purchase_cancelled", feeReleased: false },
+        );
+      } else if (escrow.type === "inspection") {
+        await Inspection.findOneAndUpdate(
+          { property: escrow.property, user: escrow.buyer },
+          { status: "inspection_cancelled", feeReleased: false },
+        );
+      }
+    }
+
+    // 6. Record Transaction for buyer wallet history audit
+    await Transaction.create({
+      user: escrow.buyer,
+      amount: escrow.amount,
+      type: "escrow_refund",
+      status: "completed",
+      reference: escrow.reference || `REFUND-${Date.now()}`,
+      description: `Refund for escrow (${escrow.type || "transaction"}): ${escrow.reason}`,
+    });
+
+    // 7. Socket.io notification emission
+    if (global.io) {
+      global.io.emit("notification", {
+        type: "escrow_refunded",
+        title: "Escrow Refunded",
+        message: `An escrow payment of ₦${escrow.amount.toLocaleString()} has been refunded to your wallet.`,
+        userId: escrow.buyer,
+        escrowId: escrow._id,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Escrow successfully refunded to buyer's wallet.",
+      escrow,
+    });
+  } catch (err) {
+    console.error("refundEscrow error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "An error occurred while refunding the escrow.",
+    });
+  }
+};
+
 module.exports = {
   getAllEscrows,
   getEscrowById,
   getAgentEscrows,
   changeEscrowStatus,
+  refundEscrow,
 };

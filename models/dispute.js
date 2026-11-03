@@ -81,11 +81,27 @@ const DisputeSchema = new Schema(
     },
     disputeFiles: [{ type: String }],
     resolutionNotes: { type: String, trim: true },
+    resolution: {
+      type: String,
+      enum: ["buyer_favor", "agent_favor", "split", "dismissed"],
+      default: null,
+    },
+    payoutAccount: {
+      bankName: { type: String, trim: true },
+      accountNumber: { type: String, trim: true },
+      accountName: { type: String, trim: true },
+      bankCode: { type: String, trim: true },
+    },
     resolvedBy: { type: Schema.Types.ObjectId, ref: "User" },
     status: {
       type: String,
       enum: ["opened", "under_review", "resolved", "closed", "escalated"],
       default: "opened",
+    },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      default: "medium",
     },
     openedAt: { type: Date, default: Date.now },
     reviewedAt: { type: Date },

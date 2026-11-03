@@ -31,7 +31,6 @@ const requestInspection = async (req, res) => {
     });
 
     if (existingInspection) {
-      // If fee is NOT paid yet, return the existing ID so the user can resume payment seamlessly
       if (!existingInspection.feePaid) {
         return res.status(200).json({
           success: true,
@@ -43,7 +42,6 @@ const requestInspection = async (req, res) => {
         });
       }
 
-      // If already paid/processed, prevent duplicate requests
       return res.status(400).json({
         success: false,
         message:
@@ -55,9 +53,7 @@ const requestInspection = async (req, res) => {
 
     const code = generateCode();
     const inspectionFee = property.inspectionFee || 0;
-
-    // Calculate platform fee (e.g., 10% platform cut on inspections)
-    const platformFee = inspectionFee * 0.1;
+    const platformFee = 0; // Platform fee for inspections is 0
 
     const inspection = await Inspection.create({
       property: property._id,
@@ -65,7 +61,7 @@ const requestInspection = async (req, res) => {
       user: userId,
       code,
       fee: inspectionFee,
-      platformFee: platformFee, // <--- SAVED HERE (Item 18)
+      platformFee: platformFee,
       status: "inspection_requested",
     });
 
@@ -208,8 +204,9 @@ const verifyInspectionPayment = async (req, res) => {
         property: inspection.property?._id,
         buyer: inspection.user,
         seller: inspection.owner?._id || inspection.owner,
+        inspection: inspection._id, // <--- Linked exact inspection reference[cite: 3]
         amount: inspection.fee,
-        platformFee: inspection.platformFee || 0, // <--- Also track platform fee on the Escrow record if needed
+        platformFee: 0,
         status: "on_hold",
         reference,
         type: "inspection",
@@ -370,7 +367,6 @@ const rescheduleInspection = async (req, res) => {
       });
     }
 
-    // Reset back to 'inspection_paid' so the agent knows to pick a new date
     inspection.status = "inspection_paid";
     inspection.scheduledDate = null;
     inspection.scheduledAt = null;
@@ -422,7 +418,6 @@ const confirmInspection = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
-    // Ensure only the buyer who requested it can confirm/accept the schedule
     if (inspection.user?.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -443,13 +438,12 @@ const confirmInspection = async (req, res) => {
     inspection.confirmedAt = new Date();
     await inspection.save();
 
+    // Query escrow by exact inspection ID reference[cite: 3]
     let escrow = await Escrow.findOne({
-      property: inspection.property?._id,
-      buyer: inspection.user,
-      type: "inspection",
+      inspection: inspection._id,
     });
     if (escrow) {
-      escrow.status = "approved";
+      escrow.status = "on_hold";
       await escrow.save();
     }
 
@@ -595,25 +589,26 @@ const changeInspectionStatus = async (req, res) => {
     inspection.escrowHeldBy = adminId;
     await inspection.save();
 
-    // Find the corresponding escrow record
+    // Query escrow by exact inspection reference[cite: 3]
     let escrow = await Escrow.findOne({
-      property: inspection.property?._id,
-      buyer: inspection.user,
-      type: "inspection",
+      inspection: inspection._id,
     });
 
     if (escrow) {
-      // Release funds if inspection is confirmed or completed
       if (
         status === "inspection_confirmed" ||
         status === "inspection_completed"
       ) {
         escrow.status = "released";
+        escrow.releasedAt = new Date();
+        escrow.releasedBy = adminId;
+        if (req.body.reason) escrow.reason = req.body.reason;
         await escrow.save();
-      }
-      // Refund buyer if inspection is cancelled
-      else if (status === "inspection_cancelled") {
+      } else if (status === "inspection_cancelled") {
         escrow.status = "refunded";
+        escrow.releasedAt = new Date(); // timestamp of action
+        escrow.releasedBy = adminId;
+        if (req.body.reason) escrow.reason = req.body.reason;
         await escrow.save();
       }
     }
