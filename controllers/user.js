@@ -575,6 +575,7 @@ const updateAgentVerification = async (req, res) => {
 
     agent.verificationStatus = status;
     agent.isVerified = status === "approved";
+    agent.verifiedAt = true;
     await agent.save();
 
     return res

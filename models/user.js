@@ -33,6 +33,7 @@ const UserSchema = new mongoose.Schema({
   verificationCode: { type: Number, default: false },
   isOnboarding: { type: Boolean, default: false },
   isVerified: { type: Boolean, default: false },
+  verifiedAt: { type: Date, default: null },
   rating: {
     type: Number,
     default: 0,
