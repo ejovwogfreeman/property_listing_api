@@ -43,7 +43,7 @@ register = async (req, res) => {
       name,
       email,
       password,
-      assignedRole,
+      role: assignedRole,
       verificationCode,
       isVerified: false,
       isGoogleUser: false,
