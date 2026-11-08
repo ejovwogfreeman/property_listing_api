@@ -14,7 +14,7 @@ const {
   updateAdminNote,
   deleteAdminNote,
 } = require("../controllers/property");
-const { protect, authorize } = require("../middlewares/auth");
+const { optionalAuth, protect, authorize } = require("../middlewares/auth");
 const { uploadPropertyFiles, uploadNone } = require("../middlewares/upload");
 
 // // ------------------------
@@ -42,7 +42,7 @@ router.get("/agent/:id", protect, getAgentProperties);
 // ------------------------
 // Get single property by ID
 // Public (or protected if you want)
-router.get("/:id", getProperty);
+router.get("/:id", optionalAuth, getProperty);
 
 // ------------------------
 // Update property by ID
