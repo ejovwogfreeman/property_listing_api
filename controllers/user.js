@@ -213,7 +213,7 @@ const onboardAgent = async (req, res) => {
     user.governmentId = governmentIdUrls;
     user.licenseDoc = licenseDocUrls;
     user.isOnboarding = true;
-
+    user.onboardedAt = Date.now();
     await user.save();
 
     const admins = await User.find({ role: "admin" });
@@ -575,7 +575,7 @@ const updateAgentVerification = async (req, res) => {
 
     agent.verificationStatus = status;
     agent.isVerified = status === "approved";
-    agent.onboardedAt = Date.now();
+    // agent.onboardedAt = Date.now();
     await agent.save();
 
     return res
