@@ -37,7 +37,8 @@ router.get("/", getAllProperties);
 // ------------------------
 // Get all agent properties
 // Public
-router.get("/agent/:id", protect, getAgentProperties);
+// router.get("/agent/:id", protect, getAgentProperties);
+router.get("/agent/:id", getAgentProperties);
 
 // ------------------------
 // Get single property by ID

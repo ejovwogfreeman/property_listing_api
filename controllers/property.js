@@ -306,36 +306,37 @@ const getProperty = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Property not found" });
 
-    // Viewer identity is guaranteed because of the 'protect' middleware
-    const viewerId = req.user._id.toString();
-    const viewerRole = req.user.role;
+    // 🛡️ Safely check if req.user exists using optional chaining (?.)
+    if (req.user && req.user._id) {
+      const viewerId = req.user._id.toString();
+      const viewerRole = req.user.role;
 
-    // Safely get the owner's ID whether prop.owner is populated or an ObjectId
-    const ownerId = prop.owner?._id
-      ? prop.owner._id.toString()
-      : prop.owner?.toString();
+      const ownerId = prop.owner?._id
+        ? prop.owner._id.toString()
+        : prop.owner?.toString();
 
-    const isOwner = viewerId === ownerId;
-    const isAdmin = viewerRole === "admin";
+      const isOwner = viewerId === ownerId;
+      const isAdmin = viewerRole === "admin";
 
-    // Only notify owner if the viewer is NEITHER the owner nor an admin
-    if (!isOwner && !isAdmin) {
-      await Notification.create({
-        user: ownerId,
-        title: "Property Viewed",
-        message: `Your property "${prop.title}" was viewed.`,
-        meta: { propertyId: prop._id },
-      });
-
-      if (global.io)
-        global.io.emit("notification", {
-          type: "property_viewed",
+      if (!isOwner && !isAdmin) {
+        await Notification.create({
+          user: ownerId,
           title: "Property Viewed",
-          message: `Someone viewed "${prop.title}".`,
-          propertyId: prop._id,
+          message: `Your property "${prop.title}" was viewed.`,
+          meta: { propertyId: prop._id },
         });
+
+        if (global.io)
+          global.io.emit("notification", {
+            type: "property_viewed",
+            title: "Property Viewed",
+            message: `Someone viewed "${prop.title}".`,
+            propertyId: prop._id,
+          });
+      }
     }
 
+    // Always returns property data whether guest or logged-in
     res.json({ success: true, property: prop });
   } catch (err) {
     console.error("getProperty error:", err);
