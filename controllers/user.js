@@ -374,10 +374,32 @@ const onboardAgent = async (req, res) => {
 /**
  * @desc Get all agents (Public route)
  */
+// const getAllAgents = async (req, res) => {
+//   try {
+//     const agents = await User.find({ role: "agent" }).select(
+//       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agents fetched successfully",
+//       total: agents.length,
+//       data: agents,
+//     });
+//   } catch (error) {
+//     console.error("getAllAgents error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
 const getAllAgents = async (req, res) => {
   try {
     const agents = await User.find({ role: "agent" }).select(
-      "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+      "name email phoneNumber profilePicture isVerified verificationStatus about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
     );
 
     return res.status(200).json({
@@ -459,12 +481,49 @@ const getAllUsers = async (req, res) => {
 //   }
 // };
 
+// const getAgentProfile = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const agent = await User.findOne({ _id: id, role: "agent" }).select(
+//       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings riskLevel createdAt",
+//     );
+
+//     if (!agent) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Agent not found",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agent fetched successfully",
+//       data: agent,
+//     });
+//   } catch (error) {
+//     console.error("getAgentProfile error:", error);
+
+//     if (error.kind === "ObjectId") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid agent ID format",
+//       });
+//     }
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
 const getAgentProfile = async (req, res) => {
   try {
     const { id } = req.params;
 
     const agent = await User.findOne({ _id: id, role: "agent" }).select(
-      "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings riskLevel createdAt",
+      "name email phoneNumber profilePicture isVerified verificationStatus about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings riskLevel createdAt",
     );
 
     if (!agent) {
@@ -795,6 +854,31 @@ const moderateUserAccount = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+/**
+ * One-time migration: Updates legacy submitted agents from "none" to "pending"
+ */
+const runAgentVerificationMigration = async () => {
+  try {
+    const result = await User.updateMany(
+      { role: "agent", isOnboarding: true, verificationStatus: "none" },
+      { $set: { verificationStatus: "pending" } },
+    );
+    if (result.modifiedCount > 0) {
+      console.log(
+        `[Migration] Successfully updated ${result.modifiedCount} legacy agent(s) to 'pending' status.`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[Migration] Error running agent verification migration:",
+      err,
+    );
+  }
+};
+
+// Execute it automatically on server startup
+runAgentVerificationMigration();
 
 module.exports = {
   getMe,
