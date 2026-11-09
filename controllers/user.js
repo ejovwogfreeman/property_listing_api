@@ -141,6 +141,114 @@ const changeProfilePicture = async (req, res) => {
 /**
  * @desc Onboard an agent by submitting professional details and document/ID files
  */
+// const onboardAgent = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+//     const {
+//       phoneNumber,
+//       about,
+//       yearsOfExperience,
+//       serviceArea,
+//       languages,
+//       businessName,
+//       licenseNumber,
+//       officeAddress,
+//       socialLinkOrWebsite,
+//     } = req.body;
+
+//     const user = await User.findById(userId);
+//     if (!user) return res.status(404).json({ message: "User not found" });
+
+//     if (user.role !== "agent") {
+//       return res.status(403).json({
+//         message: "Only users with the agent role can complete onboarding",
+//       });
+//     }
+
+//     const governmentIdUrls = req.files?.governmentId
+//       ? await uploadImages(req.files.governmentId)
+//       : [];
+
+//     const licenseDocUrls = req.files?.licenseDoc
+//       ? await uploadImages(req.files.licenseDoc)
+//       : [];
+
+//     if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+//     if (about !== undefined) user.about = about;
+//     if (yearsOfExperience !== undefined)
+//       user.yearsOfExperience = yearsOfExperience;
+
+//     if (serviceArea !== undefined) {
+//       try {
+//         user.serviceArea =
+//           typeof serviceArea === "string"
+//             ? JSON.parse(serviceArea)
+//             : serviceArea;
+//       } catch (e) {
+//         user.serviceArea =
+//           typeof serviceArea === "string"
+//             ? serviceArea.split(",").map((s) => s.trim())
+//             : serviceArea;
+//       }
+//     }
+
+//     if (languages !== undefined) {
+//       try {
+//         user.languages =
+//           typeof languages === "string" ? JSON.parse(languages) : languages;
+//       } catch (e) {
+//         user.languages =
+//           typeof languages === "string"
+//             ? languages.split(",").map((l) => l.trim())
+//             : languages;
+//       }
+//     }
+
+//     if (businessName !== undefined) user.businessName = businessName;
+//     if (licenseNumber !== undefined) user.licenseNumber = licenseNumber;
+//     if (officeAddress !== undefined) user.officeAddress = officeAddress;
+//     if (socialLinkOrWebsite !== undefined)
+//       user.socialLinkOrWebsite = socialLinkOrWebsite;
+
+//     user.governmentId = governmentIdUrls;
+//     user.licenseDoc = licenseDocUrls;
+//     user.isOnboarding = true;
+//     user.onboardedAt = Date.now();
+//     user.verificationStatus = "pending";
+//     -(await user.save());
+
+//     const admins = await User.find({ role: "admin" });
+//     for (const admin of admins) {
+//       const notif = await Notification.create({
+//         user: admin._id,
+//         title: "Agent Onboarded",
+//         message: `${user.name} submitted their agent onboarding details`,
+//         meta: { userId: user._id },
+//       });
+
+//       const adminSocketId = global.onlineUsers?.get(admin._id.toString());
+//       if (adminSocketId && global.io) {
+//         global.io.to(adminSocketId).emit("notification", notif);
+//       }
+//     }
+
+//     // Sanitize user object
+//     const userResponse = user.toObject();
+//     delete userResponse.password;
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agent onboarding submitted successfully",
+//       user: userResponse,
+//     });
+//   } catch (err) {
+//     console.error("onboardAgent error:", err);
+//     return res
+//       .status(500)
+//       .json({ message: "Server error", error: err.message });
+//   }
+// };
+
 const onboardAgent = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -165,13 +273,23 @@ const onboardAgent = async (req, res) => {
       });
     }
 
+    // 1. Enforce submission/resubmission restriction rule
+    const currentStatus = user.verificationStatus || "none";
+    if (currentStatus === "pending" || currentStatus === "approved") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit onboarding while status is '${currentStatus}'.`,
+      });
+    }
+
+    // 2. File persistence: keep existing documents if no new files are uploaded
     const governmentIdUrls = req.files?.governmentId
       ? await uploadImages(req.files.governmentId)
-      : [];
+      : user.governmentId;
 
     const licenseDocUrls = req.files?.licenseDoc
       ? await uploadImages(req.files.licenseDoc)
-      : [];
+      : user.licenseDoc;
 
     if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
     if (about !== undefined) user.about = about;
@@ -214,6 +332,11 @@ const onboardAgent = async (req, res) => {
     user.licenseDoc = licenseDocUrls;
     user.isOnboarding = true;
     user.onboardedAt = Date.now();
+    user.verificationStatus = "pending";
+
+    // Clear old rejection notes when re-submitting from a rejected state
+    user.verificationNote = undefined;
+
     await user.save();
 
     const admins = await User.find({ role: "admin" });
@@ -556,10 +679,40 @@ const updateAgentRiskLevel = async (req, res) => {
 };
 
 // 15. Approve or Reject Agent Verification
+// const updateAgentVerification = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { status } = req.body; // "approved" or "rejected"
+
+//     if (!["approved", "rejected"].includes(status)) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Invalid status value" });
+//     }
+
+//     const agent = await User.findOne({ _id: id, role: "agent" });
+//     if (!agent)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Agent not found" });
+
+//     agent.verificationStatus = status;
+//     agent.isVerified = status === "approved";
+//     // agent.onboardedAt = Date.now();
+//     await agent.save();
+
+//     return res
+//       .status(200)
+//       .json({ success: true, message: `Agent verification ${status}`, agent });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 const updateAgentVerification = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body; // "approved" or "rejected"
+    const { status, reason } = req.body; // "approved" or "rejected", optional reason
 
     if (!["approved", "rejected"].includes(status)) {
       return res
@@ -574,14 +727,46 @@ const updateAgentVerification = async (req, res) => {
         .json({ success: false, message: "Agent not found" });
 
     agent.verificationStatus = status;
-    agent.isVerified = status === "approved";
-    // agent.onboardedAt = Date.now();
+
+    // NOTE: Intentionally leaving agent.isVerified untouched (it is for email confirmation)
+
+    if (status === "rejected") {
+      agent.verificationNote =
+        reason || "Your onboarding verification was rejected.";
+    } else if (status === "approved") {
+      agent.verificationNote = undefined; // Clear any old rejection notes upon approval
+    }
+
     await agent.save();
 
-    return res
-      .status(200)
-      .json({ success: true, message: `Agent verification ${status}`, agent });
+    // Send notification to the agent about the decision
+    const notificationMessage =
+      status === "approved"
+        ? "Congratulations! Your agent onboarding verification has been approved."
+        : `Your agent onboarding verification was rejected. Reason: ${agent.verificationNote}`;
+
+    const notif = await Notification.create({
+      user: agent._id,
+      title: `Agent Verification ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      message: notificationMessage,
+      meta: { verificationStatus: status },
+    });
+
+    const agentSocketId = global.onlineUsers?.get(agent._id.toString());
+    if (agentSocketId && global.io) {
+      global.io.to(agentSocketId).emit("notification", notif);
+    }
+
+    const agentResponse = agent.toObject();
+    delete agentResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message: `Agent verification ${status}`,
+      agent: agentResponse,
+    });
   } catch (err) {
+    console.error("updateAgentVerification error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
