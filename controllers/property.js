@@ -3,108 +3,30 @@ const Notification = require("../models/notification");
 const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 
 /**
+ * Helper function to sanitize/filter internal property fields for non-owners/non-admins
+ */
+const sanitizePropertyForUser = (propObj, userId, userRole) => {
+  if (!propObj) return propObj;
+
+  const ownerId = propObj.owner?._id
+    ? propObj.owner._id.toString()
+    : propObj.owner?.toString();
+  const isOwner = userId && ownerId && userId.toString() === ownerId;
+  const isAdmin = userRole === "admin";
+
+  // If not owner and not admin, strip internal sensitive fields
+  if (!isOwner && !isAdmin) {
+    delete propObj.adminNotes;
+    delete propObj.flagReason;
+    delete propObj.statusHistory;
+    delete propObj.rejectionReason;
+  }
+  return propObj;
+};
+
+/**
  * @desc Create a new property
  */
-
-// const createProperty = async (req, res) => {
-//   try {
-//     const {
-//       title,
-//       description,
-//       price,
-//       escrowFee,
-//       address,
-//       propertyType,
-//       listingType,
-//       landSize, // for land only
-//       landUnit, // for land only
-//       landCondition, // for land only
-//       landDocTitle, // for land only
-//       landType, //for land only
-//       bedroom, // for apartment/house only
-//       bathroom, // for apartment/house only
-//       kitchen, // for apartment/house only
-//       inspectionFee,
-//       serviceCharge,
-//       nearbyPlaces, // array of strings
-//     } = req.body;
-
-//     const user = req.user; // Logged in user
-//     const owner = {
-//       _id: user._id,
-//       name: user.name,
-//       profilePicture: user.profilePicture || null,
-//       isVerified: user.isVerified || false,
-//       rating: user.rating || 0,
-//       totalListings: user.totalListings || 0,
-//     };
-
-//     // Upload images (multiple)
-//     const images = req.files?.images
-//       ? await uploadImages(req.files.images)
-//       : [];
-
-//     // Upload land document (multiple)
-//     const legalDocuments = req.files?.legalDocuments
-//       ? await uploadImages(req.files.legalDocuments)
-//       : [];
-
-//     // Upload video (single)
-//     const videos = req.files?.videos
-//       ? await uploadVideos(req.files.videos)
-//       : [];
-//     // const video = videoUrls[0] || null;
-
-//     // Create property
-//     const prop = await Property.create({
-//       title,
-//       description,
-//       price,
-//       escrowFee,
-//       address,
-//       propertyType,
-//       listingType,
-//       landSize: propertyType === "land" ? landSize : null,
-//       landUnit: propertyType === "land" ? landUnit : null,
-//       landCondition: propertyType === "land" ? landCondition : null,
-//       landDocTitle: propertyType === "land" ? landDocTitle : null,
-//       landType: propertyType === "land" ? landType : null,
-//       legalDocuments: legalDocuments,
-//       bedroom: propertyType !== "land" ? bedroom : null,
-//       bathroom: propertyType !== "land" ? bathroom : null,
-//       kitchen: propertyType !== "land" ? kitchen : null,
-//       inspectionFee,
-//       serviceCharge,
-//       nearbyPlaces: nearbyPlaces || [],
-//       images,
-//       videos,
-//       owner,
-//     });
-
-//     // Create notification
-//     await Notification.create({
-//       user: user._id,
-//       title: "Property Created",
-//       message: `Your property "${title}" was created successfully.`,
-//       meta: { propertyId: prop._id },
-//     });
-
-//     // Broadcast to global socket
-//     if (global.io)
-//       global.io.emit("notification", {
-//         type: "property_created",
-//         title: "New Property Listed",
-//         message: `New property "${title}" just got listed.`,
-//         propertyId: prop._id,
-//       });
-
-//     res.status(201).json({ success: true, property: prop });
-//   } catch (err) {
-//     console.error("createProperty error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
-
 const createProperty = async (req, res) => {
   try {
     const {
@@ -115,24 +37,23 @@ const createProperty = async (req, res) => {
       address,
       propertyType,
       listingType,
-      landSize, // for land only
-      landUnit, // for land only
-      landCondition, // for land only
-      landDocTitle, // for land only
-      landType, // for land only
-      bedroom, // for apartment/house only
-      bathroom, // for apartment/house only
-      kitchen, // for apartment/house only
+      landSize,
+      landUnit,
+      landCondition,
+      landDocTitle,
+      landType,
+      bedroom,
+      bathroom,
+      kitchen,
       inspectionFee,
       serviceCharge,
-      nearbyPlaces, // array of strings
-      ownerId, // OPTIONAL: target agent ID when created by an Admin
+      nearbyPlaces,
+      ownerId,
     } = req.body;
 
-    const loggedInUser = req.user; // Logged in user (Agent or Admin)
+    const loggedInUser = req.user;
     let targetOwnerUser = loggedInUser;
 
-    // If an Admin is creating the property for an agent
     if (loggedInUser.role === "admin" && ownerId) {
       const targetAgent = await User.findById(ownerId);
       if (!targetAgent) {
@@ -144,7 +65,6 @@ const createProperty = async (req, res) => {
       targetOwnerUser = targetAgent;
     }
 
-    // Build the subdocument owner object
     const owner = {
       _id: targetOwnerUser._id,
       name: targetOwnerUser.name,
@@ -154,22 +74,18 @@ const createProperty = async (req, res) => {
       totalListings: targetOwnerUser.totalListings || 0,
     };
 
-    // Upload images (multiple)
     const images = req.files?.images
       ? await uploadImages(req.files.images)
       : [];
 
-    // Upload land document (multiple)
     const legalDocuments = req.files?.legalDocuments
       ? await uploadImages(req.files.legalDocuments)
       : [];
 
-    // Upload video (single/multiple)
     const videos = req.files?.videos
       ? await uploadVideos(req.files.videos)
       : [];
 
-    // Create property
     const prop = await Property.create({
       title,
       description,
@@ -195,7 +111,6 @@ const createProperty = async (req, res) => {
       owner,
     });
 
-    // Send notification to the actual property owner/agent
     await Notification.create({
       user: targetOwnerUser._id,
       title: "Property Created",
@@ -203,7 +118,6 @@ const createProperty = async (req, res) => {
       meta: { propertyId: prop._id },
     });
 
-    // Broadcast to global socket
     if (global.io) {
       global.io.emit("notification", {
         type: "property_created",
@@ -225,8 +139,16 @@ const createProperty = async (req, res) => {
  */
 const getAllProperties = async (req, res) => {
   try {
-    const props = await Property.find().sort({ createdAt: -1 });
-    res.json({ success: true, properties: props });
+    const props = await Property.find().sort({ createdAt: -1 }).lean();
+
+    const userId = req.user?._id;
+    const userRole = req.user?.role;
+
+    const sanitizedProps = props.map((p) =>
+      sanitizePropertyForUser(p, userId, userRole),
+    );
+
+    res.json({ success: true, properties: sanitizedProps });
   } catch (err) {
     console.error("listProperties error:", err);
     res.status(500).json({ success: false, message: "Server error" });
@@ -238,16 +160,22 @@ const getAllProperties = async (req, res) => {
  */
 const getAgentProperties = async (req, res) => {
   try {
-    const requestedAgentId = req.params.id; // or req.query.agentId
-
+    const requestedAgentId = req.params.id;
     const props = await Property.find({
       "owner._id": requestedAgentId,
-    });
+    }).lean();
+
+    const userId = req.user?._id;
+    const userRole = req.user?.role;
+
+    const sanitizedProps = props.map((p) =>
+      sanitizePropertyForUser(p, userId, userRole),
+    );
 
     res.json({
       success: true,
-      count: props.length,
-      properties: props,
+      count: sanitizedProps.length,
+      properties: sanitizedProps,
     });
   } catch (err) {
     console.error("getAgentProperties error:", err);
@@ -261,52 +189,17 @@ const getAgentProperties = async (req, res) => {
 /**
  * @desc Get single property
  */
-// const getProperty = async (req, res) => {
-//   try {
-//     const prop = await Property.findById(req.params.id).populate(
-//       "owner",
-//       "name email phoneNumber profilePicture",
-//     );
-//     if (!prop)
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Property not found" });
-
-//     // Notify owner that their property was viewed (optional)
-//     await Notification.create({
-//       user: prop.owner._id,
-//       title: "Property Viewed",
-//       message: `Your property "${prop.title}" was viewed.`,
-//       meta: { propertyId: prop._id },
-//     });
-
-//     if (global.io)
-//       global.io.emit("notification", {
-//         type: "property_viewed",
-//         title: "Property Viewed",
-//         message: `Someone viewed "${prop.title}".`,
-//         propertyId: prop._id,
-//       });
-
-//     res.json({ success: true, property: prop });
-//   } catch (err) {
-//     console.error("getProperty error:", err);
-//     res.status(500).json({ success: false, message: "Server error" });
-//   }
-// };
-
 const getProperty = async (req, res) => {
   try {
-    const prop = await Property.findById(req.params.id).populate(
-      "owner",
-      "name email phoneNumber profilePicture",
-    );
+    const prop = await Property.findById(req.params.id)
+      .populate("owner", "name email phoneNumber profilePicture")
+      .lean();
+
     if (!prop)
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
 
-    // 🛡️ Safely check if req.user exists using optional chaining (?.)
     if (req.user && req.user._id) {
       const viewerId = req.user._id.toString();
       const viewerRole = req.user.role;
@@ -336,8 +229,11 @@ const getProperty = async (req, res) => {
       }
     }
 
-    // Always returns property data whether guest or logged-in
-    res.json({ success: true, property: prop });
+    const userId = req.user?._id;
+    const userRole = req.user?.role;
+    const sanitizedProp = sanitizePropertyForUser(prop, userId, userRole);
+
+    res.json({ success: true, property: sanitizedProp });
   } catch (err) {
     console.error("getProperty error:", err);
     res
@@ -347,9 +243,8 @@ const getProperty = async (req, res) => {
 };
 
 /**
- * @desc Update property
+ * @desc Update property (Automatically resets rejected properties back to pending)
  */
-
 const updateProperty = async (req, res) => {
   try {
     const prop = await Property.findById(req.params.id);
@@ -359,7 +254,6 @@ const updateProperty = async (req, res) => {
         .json({ success: false, message: "Property not found" });
     }
 
-    // Check ownership or admin role
     if (
       prop.owner._id.toString() !== req.user._id.toString() &&
       req.user.role !== "admin"
@@ -387,10 +281,9 @@ const updateProperty = async (req, res) => {
       kitchen,
       inspectionFee,
       serviceCharge,
-      nearbyPlaces, // array of strings (or stringified array from FormData)
+      nearbyPlaces,
     } = req.body;
 
-    // Update basic text fields if provided
     if (title !== undefined) prop.title = title;
     if (description !== undefined) prop.description = description;
     if (price !== undefined) prop.price = price;
@@ -401,7 +294,6 @@ const updateProperty = async (req, res) => {
     if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
     if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
 
-    // Handle nearbyPlaces array safely (supports FormData parsing if sent as a string)
     if (nearbyPlaces !== undefined) {
       try {
         prop.nearbyPlaces =
@@ -416,7 +308,6 @@ const updateProperty = async (req, res) => {
       }
     }
 
-    // Conditional propertyType-specific fields update
     const activePropertyType = propertyType || prop.propertyType;
 
     if (activePropertyType === "land") {
@@ -426,7 +317,6 @@ const updateProperty = async (req, res) => {
       if (landDocTitle !== undefined) prop.landDocTitle = landDocTitle;
       if (landType !== undefined) prop.landType = landType;
 
-      // Clear apartment/house specific fields
       prop.bedroom = null;
       prop.bathroom = null;
       prop.kitchen = null;
@@ -435,7 +325,6 @@ const updateProperty = async (req, res) => {
       if (bathroom !== undefined) prop.bathroom = bathroom;
       if (kitchen !== undefined) prop.kitchen = kitchen;
 
-      // Clear land specific fields
       prop.landSize = null;
       prop.landUnit = null;
       prop.landCondition = null;
@@ -443,10 +332,9 @@ const updateProperty = async (req, res) => {
       prop.landType = null;
     }
 
-    // Handle new media/file uploads (appends or replaces based on your requirement)
     if (req.files?.images) {
       const newImages = await uploadImages(req.files.images);
-      prop.images.push(...newImages); // Appends new images to existing ones
+      prop.images.push(...newImages);
     }
 
     if (req.files?.legalDocuments) {
@@ -461,9 +349,14 @@ const updateProperty = async (req, res) => {
       }
     }
 
+    // If listing was rejected, editing resets it to pending and clears rejectionReason
+    if (prop.status === "rejected") {
+      prop.status = "pending";
+      prop.rejectionReason = undefined;
+    }
+
     await prop.save();
 
-    // Create notification
     await Notification.create({
       user: prop.owner._id,
       title: "Property Updated",
@@ -471,7 +364,6 @@ const updateProperty = async (req, res) => {
       meta: { propertyId: prop._id },
     });
 
-    // Broadcast to global socket
     if (global.io) {
       global.io.emit("notification", {
         type: "property_updated",
@@ -488,107 +380,6 @@ const updateProperty = async (req, res) => {
   }
 };
 
-// const updateProperty = async (req, res) => {
-//   try {
-//     const prop = await Property.findById(req.params.id);
-//     if (!prop)
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Property not found" });
-
-//     // Check ownership or admin role
-//     if (
-//       prop.owner._id.toString() !== req.user._id.toString() &&
-//       req.user.role !== "admin"
-//     ) {
-//       return res
-//         .status(403)
-//         .json({ success: false, message: "Not authorized" });
-//     }
-
-//     // Destructure all possible fields (Added listingType here)
-//     const {
-//       title,
-//       description,
-//       price,
-//       address,
-//       propertyType,
-//       landType,
-//       listingType, // <-- Added this
-//       bedroom,
-//       bathroom,
-//       kitchen,
-//       inspectionFee,
-//       serviceCharge,
-//       nearbyPlaces, // array
-//     } = req.body;
-
-//     // Update fields if provided
-//     if (title) prop.title = title;
-//     if (description) prop.description = description;
-//     if (price) prop.price = price;
-//     if (address) prop.address = address;
-//     if (propertyType) prop.propertyType = propertyType;
-//     if (listingType) prop.listingType = listingType; // <-- Added this check
-
-//     // Conditional fields
-//     if (prop.propertyType === "land") {
-//       if (landType) prop.landType = landType;
-//       prop.bedroom = undefined;
-//       prop.bathroom = undefined;
-//       prop.kitchen = undefined;
-//     } else {
-//       if (bedroom !== undefined) prop.bedroom = bedroom;
-//       if (bathroom !== undefined) prop.bathroom = bathroom;
-//       if (kitchen !== undefined) prop.kitchen = kitchen;
-//       prop.landType = undefined;
-//     }
-
-//     if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
-//     if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
-//     if (nearbyPlaces) prop.nearbyPlaces = nearbyPlaces;
-
-//     // Handle new uploads
-//     if (req.files && req.files.images) {
-//       const images = req.files.images.map(
-//         (f) => f.path || f.url || f.secure_url || f.location || "",
-//       );
-//       prop.images.push(...images);
-//     }
-
-//     if (req.files && req.files.video && req.files.video[0]) {
-//       const v = req.files.video[0];
-//       prop.video = v.path || v.url || v.secure_url || v.location || prop.video;
-//     }
-
-//     await prop.save();
-
-//     // Notify owner
-//     await Notification.create({
-//       user: prop.owner._id,
-//       title: "Property Updated",
-//       message: `Your property "${prop.title}" was updated.`,
-//       meta: { propertyId: prop._id },
-//     });
-
-//     // Broadcast via socket
-//     if (global.io)
-//       global.io.emit("notification", {
-//         type: "property_updated",
-//         title: "Property Updated",
-//         message: `Property "${prop.title}" was updated.`,
-//         propertyId: prop._id,
-//       });
-
-//     res.json({ success: true, property: prop });
-//   } catch (err) {
-//     console.error("updateProperty error:", err);
-//     res
-//       .status(500)
-//       .json({ success: false, message: "Server error", error: err.message });
-//   }
-// };
-
 /**
  * @desc Delete property
  */
@@ -600,7 +391,6 @@ const deleteProperty = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Property not found" });
 
-    // Check ownership or admin role
     if (
       prop.owner.toString() !== req.user._id.toString() &&
       req.user.role !== "admin"
@@ -612,7 +402,6 @@ const deleteProperty = async (req, res) => {
 
     await prop.deleteOne();
 
-    // Notify owner
     await Notification.create({
       user: prop.owner,
       title: "Property Deleted",
@@ -637,71 +426,12 @@ const deleteProperty = async (req, res) => {
 
 /**
  * @desc Change property status (Admin only)
- * @route PATCH /api/properties/:id/status
  */
-// const changePropertyStatus = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { status } = req.body;
-
-//     // Define valid status options
-//     const validStatuses = ["pending", "approved", "rejected"];
-
-//     if (!status || !validStatuses.includes(status)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: `Invalid status. Status must be one of: ${validStatuses.join(", ")}`,
-//       });
-//     }
-
-//     // Verify that the user is an admin
-//     if (req.user.role !== "admin") {
-//       return res.status(403).json({
-//         success: false,
-//         message: "Access denied. Only admins can update property status.",
-//       });
-//     }
-
-//     const property = await Property.findById(id);
-//     if (!property) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Property not found",
-//       });
-//     }
-
-//     property.status = status;
-//     await property.save();
-
-//     return res.status(200).json({
-//       success: true,
-//       message: `Property status successfully updated to '${status}'`,
-//       data: property,
-//     });
-//   } catch (err) {
-//     console.error("changePropertyStatus error:", err);
-
-//     if (err.kind === "ObjectId") {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid property ID format",
-//       });
-//     }
-
-//     return res.status(500).json({
-//       success: false,
-//       message: "Server error",
-//       error: err.message,
-//     });
-//   }
-// };
-
 const changePropertyStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, reason } = req.body; // Added optional 'reason' extraction
+    const { status, reason } = req.body;
 
-    // Define valid status options
     const validStatuses = ["pending", "approved", "rejected"];
 
     if (!status || !validStatuses.includes(status)) {
@@ -711,7 +441,6 @@ const changePropertyStatus = async (req, res) => {
       });
     }
 
-    // Verify that the user is an admin
     if (req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
@@ -728,12 +457,20 @@ const changePropertyStatus = async (req, res) => {
     }
 
     property.status = status;
+
+    if (status === "rejected") {
+      property.rejectionReason =
+        reason || "Your property listing was rejected.";
+    } else {
+      // Clear rejectionReason when approved or set back to pending
+      property.rejectionReason = undefined;
+    }
+
     await property.save();
 
-    // --- BUG 7: Notify the agent/owner on approval or rejection ---
     let notificationMessage = `Your property "${property.title}" has been ${status}.`;
-    if (status === "rejected" && reason) {
-      notificationMessage += ` Reason: ${reason}`;
+    if (status === "rejected" && property.rejectionReason) {
+      notificationMessage += ` Reason: ${property.rejectionReason}`;
     }
 
     await Notification.create({
@@ -751,7 +488,6 @@ const changePropertyStatus = async (req, res) => {
         propertyId: property._id,
       });
     }
-    // -------------------------------------------------------------
 
     return res.status(200).json({
       success: true,
@@ -778,14 +514,12 @@ const changePropertyStatus = async (req, res) => {
 
 /**
  * @desc Flag or unflag a property listing (Admin only)
- * @route PATCH /api/properties/:id/flag
  */
 const flagProperty = async (req, res) => {
   try {
     const { id } = req.params;
     const { flagged, reason } = req.body;
 
-    // Verify that the user is an admin
     if (req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
@@ -808,7 +542,6 @@ const flagProperty = async (req, res) => {
       });
     }
 
-    // Update flag fields
     property.isFlagged = flagged;
     property.flagReason = flagged ? reason || "No reason provided" : null;
     property.flaggedAt = flagged ? new Date() : null;
@@ -841,8 +574,7 @@ const flagProperty = async (req, res) => {
 };
 
 /**
- * @desc Add an admin note to a property listing & notify the agent
- * @route POST /api/properties/:propertyId/notes
+ * @desc Add an admin note to a property listing & notify the agent privately
  */
 const addAdminNote = async (req, res) => {
   try {
@@ -885,25 +617,21 @@ const addAdminNote = async (req, res) => {
 
     const savedNote = property.adminNotes[property.adminNotes.length - 1];
 
-    // Notify agent/owner
+    // Notify agent/owner privately (targeted socket instead of global broadcast)
     const ownerId = property.owner?._id || property.owner;
     if (ownerId) {
       const notificationMessage = `An admin left a note on your property "${property.title}": "${note}"`;
 
-      await Notification.create({
+      const notif = await Notification.create({
         user: ownerId,
         title: "New Admin Note",
         message: notificationMessage,
         meta: { propertyId: property._id },
       });
 
-      if (global.io) {
-        global.io.emit("notification", {
-          type: "admin_note_added",
-          title: "New Admin Note",
-          message: notificationMessage,
-          propertyId: property._id,
-        });
+      const ownerSocketId = global.onlineUsers?.get(ownerId.toString());
+      if (ownerSocketId && global.io) {
+        global.io.to(ownerSocketId).emit("notification", notif);
       }
     }
 
@@ -919,7 +647,6 @@ const addAdminNote = async (req, res) => {
 
 /**
  * @desc Update an existing admin note
- * @route PATCH /api/properties/:propertyId/notes/:noteId
  */
 const updateAdminNote = async (req, res) => {
   try {
@@ -971,7 +698,6 @@ const updateAdminNote = async (req, res) => {
 
 /**
  * @desc Delete an admin note
- * @route DELETE /api/properties/:propertyId/notes/:noteId
  */
 const deleteAdminNote = async (req, res) => {
   try {

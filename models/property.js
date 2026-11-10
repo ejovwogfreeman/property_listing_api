@@ -94,6 +94,11 @@ const propertySchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
+    // 👈 ADD THIS FIELD TO YOUR SCHEMA
+    rejectionReason: {
+      type: String,
+      default: null,
+    },
     // --- BUG 8: Flagging Fields ---
     isFlagged: {
       type: Boolean,
