@@ -188,17 +188,125 @@ const initializePurchasePayment = async (req, res) => {
 // ---------------------------
 // 3️⃣ Verify Purchase Payment (Paystack)
 // ---------------------------
+// const verifyPurchasePayment = async (req, res) => {
+//   try {
+//     const { reference, purchaseId } = req.body;
+
+//     const verification = await verifyTransaction(reference);
+//     if (!verification || verification.data.status !== "success")
+//       return res.status(400).json({ message: "Payment not successful" });
+
+//     const purchase = await Purchase.findById(purchaseId).populate("owner");
+//     if (!purchase)
+//       return res.status(404).json({ message: "Purchase not found" });
+
+//     const adminUser = await User.findOne({ role: "admin" });
+
+//     let escrow = await Escrow.findOne({ reference });
+//     if (!escrow) {
+//       escrow = await Escrow.create({
+//         reference: reference,
+//         property: purchase.property,
+//         buyer: purchase.buyer,
+//         seller: purchase.owner._id || purchase.owner,
+//         purchase: purchase._id, // <--- Linked exact purchase reference[cite: 3]
+//         amount: purchase.price,
+//         platformFee: purchase.platformFee || 0,
+//         status: "on_hold",
+//         type: "purchase",
+//       });
+//     }
+
+//     purchase.feePaid = true;
+//     purchase.escrowHeldBy = adminUser ? adminUser._id : null;
+//     purchase.status = "property_payment_made";
+//     purchase.paidAt = new Date();
+//     await purchase.save();
+
+//     await Notification.create({
+//       user: purchase.buyer,
+//       title: "Purchase Payment Verified",
+//       message: `Your purchase payment is verified and escrow has been created pending admin review.`,
+//       meta: { purchaseId, escrowId: escrow._id },
+//     });
+
+//     await Notification.create({
+//       user: purchase.owner._id || purchase.owner,
+//       title: "Purchase Payment Held in Escrow",
+//       message: `Payment for your property is verified and pending review.`,
+//       meta: { purchaseId, escrowId: escrow._id },
+//     });
+
+//     if (adminUser) {
+//       await Notification.create({
+//         user: adminUser._id,
+//         title: "New Purchase Escrow Pending Review",
+//         message: `Payment verified for purchase. New escrow is pending your review.`,
+//         meta: { purchaseId, escrowId: escrow._id },
+//       });
+//     }
+
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "purchase_payment_verified",
+//         title: "Purchase Payment Verified",
+//         message: "A purchase payment has been verified and escrow created.",
+//         purchaseId,
+//         escrowId: escrow._id,
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Payment verified successfully. Escrow created as pending.",
+//       purchase,
+//       escrow,
+//     });
+//   } catch (err) {
+//     console.error("verifyPurchasePayment error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 const verifyPurchasePayment = async (req, res) => {
   try {
     const { reference, purchaseId } = req.body;
 
-    const verification = await verifyTransaction(reference);
-    if (!verification || verification.data.status !== "success")
-      return res.status(400).json({ message: "Payment not successful" });
-
     const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase)
-      return res.status(404).json({ message: "Purchase not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+
+    // 🛡️ GUARD 1: Early return if already paid or verified
+    if (
+      purchase.feePaid ||
+      purchase.status === "property_payment_made" ||
+      purchase.status === "completed"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This purchase payment has already been verified and processed.",
+      });
+    }
+
+    const verification = await verifyTransaction(reference);
+    if (!verification || verification.data.status !== "success")
+      return res.status(400).json({
+        success: false,
+        message: "Payment not successful or verification failed",
+      });
+
+    // 🛡️ GUARD 2: Strict amount validation against expected purchase price (Paystack returns amount in kobo)
+    const expectedAmountInKobo = purchase.price * 100;
+    if (verification.data.amount !== expectedAmountInKobo) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Amount mismatch detected! The paid amount does not match the expected property price.",
+      });
+    }
 
     const adminUser = await User.findOne({ role: "admin" });
 
@@ -209,7 +317,7 @@ const verifyPurchasePayment = async (req, res) => {
         property: purchase.property,
         buyer: purchase.buyer,
         seller: purchase.owner._id || purchase.owner,
-        purchase: purchase._id, // <--- Linked exact purchase reference[cite: 3]
+        purchase: purchase._id, // <--- Linked exact purchase reference
         amount: purchase.price,
         platformFee: purchase.platformFee || 0,
         status: "on_hold",

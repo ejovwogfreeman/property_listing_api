@@ -53,7 +53,7 @@
 //       chatId,
 //       { lastMessage: message._id, updatedAt: new Date() },
 //       { new: true }
-//     ).populate("participants", "username email avatar");
+//     ).populate("participants", "name email avatar");
 
 //     // -----------------------------
 //     // Emit live notification via Socket.IO
@@ -89,7 +89,7 @@
 //     const { page = 1, limit = 30 } = req.query;
 
 //     const messages = await Message.find({ chat: chatId })
-//       .populate("sender", "username avatar email")
+//       .populate("sender", "name avatar email")
 //       .sort({ createdAt: -1 })
 //       .skip((page - 1) * limit)
 //       .limit(parseInt(limit));
@@ -132,7 +132,7 @@
 
 //     const updatedMessage = await Message.findById(messageId).populate(
 //       "sender",
-//       "username avatar email"
+//       "name avatar email"
 //     );
 
 //     res.json({
@@ -268,7 +268,7 @@ const sendMessage = async (req, res) => {
     // populate sender for frontend
     const fullMessage = await Message.findById(message._id).populate(
       "sender",
-      "username email avatar",
+      "name email avatar",
     );
 
     // =====================
@@ -323,7 +323,7 @@ const getMessages = async (req, res) => {
 
     // Fetch all messages in chronological order
     const messages = await Message.find({ chat: chatId })
-      .populate("sender", "username avatar email")
+      .populate("sender", "name avatar email")
       .sort({ createdAt: 1 }); // oldest first
 
     res.json(messages);
@@ -360,7 +360,7 @@ const updateMessage = async (req, res) => {
 
     const updatedMessage = await Message.findById(messageId).populate(
       "sender",
-      "username avatar email",
+      "name avatar email",
     );
 
     res.json({

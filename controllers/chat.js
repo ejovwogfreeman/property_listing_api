@@ -36,9 +36,72 @@ runMessageReadMigration();
 // ==========================
 // 1. Create or Fetch a 1-on-1 Chat
 // ==========================
+// const createOrGetChat = async (req, res) => {
+//   try {
+//     const { agentId, propertyId } = req.body;
+//     const userId = req.user._id;
+
+//     if (!agentId || !propertyId) {
+//       return res.status(400).json({
+//         message: "agentId and propertyId are required",
+//       });
+//     }
+
+//     if (userId.toString() === agentId.toString()) {
+//       return res.status(400).json({
+//         message: "You cannot chat with yourself",
+//       });
+//     }
+
+//     const property = await Property.findById(propertyId).populate("owner");
+
+//     if (!property) {
+//       return res.status(404).json({
+//         message: "Property not found",
+//       });
+//     }
+
+//     const ownerId = property.owner?._id
+//       ? property.owner._id.toString()
+//       : property.owner?.toString();
+//     if (ownerId !== agentId.toString()) {
+//       return res.status(400).json({
+//         message: "This property does not belong to this agent",
+//       });
+//     }
+
+//     const participants = [userId.toString(), agentId.toString()].sort();
+
+//     let chat = await Chat.findOne({
+//       property: propertyId,
+//       participants,
+//     });
+
+//     if (!chat) {
+//       try {
+//         chat = await Chat.create({
+//           participants,
+//           property: propertyId,
+//         });
+//       } catch (err) {
+//         chat = await Chat.findOne({
+//           property: propertyId,
+//           participants,
+//         });
+//       }
+//     }
+
+//     return res.status(200).json(chat);
+//   } catch (error) {
+//     return res.status(500).json({
+//       message: error.message,
+//     });
+//   }
+// };
+
 const createOrGetChat = async (req, res) => {
   try {
-    const { agentId, propertyId } = req.body;
+    const { agentId, propertyId, createIfMissing } = req.body;
     const userId = req.user._id;
 
     if (!agentId || !propertyId) {
@@ -72,12 +135,24 @@ const createOrGetChat = async (req, res) => {
 
     const participants = [userId.toString(), agentId.toString()].sort();
 
+    // 1️⃣ ALWAYS TRY TO FIND FIRST
     let chat = await Chat.findOne({
       property: propertyId,
       participants,
     });
 
-    if (!chat) {
+    // 2️⃣ IF NO CHAT EXISTS AND `createIfMissing` IS NOT TRUE -> DO NOT CREATE
+    if (!chat && !createIfMissing) {
+      return res.status(200).json({
+        success: true,
+        exists: false,
+        message:
+          "No chat document exists yet. It will be created when the first message is sent.",
+      });
+    }
+
+    // 3️⃣ CREATE ONLY WHEN TRIGGERED (e.g., when passing `createIfMissing: true` on sending the first message)
+    if (!chat && createIfMissing) {
       try {
         chat = await Chat.create({
           participants,
@@ -91,7 +166,11 @@ const createOrGetChat = async (req, res) => {
       }
     }
 
-    return res.status(200).json(chat);
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      chat,
+    });
   } catch (error) {
     return res.status(500).json({
       message: error.message,
@@ -111,14 +190,14 @@ const getUserChats = async (req, res) => {
     })
       .populate(
         "participants",
-        "username email phoneNumber profilePicture isVerified",
+        "name email phoneNumber profilePicture isVerified",
       )
       .populate("property", "title price images address")
       .populate({
         path: "lastMessage",
         populate: {
           path: "sender",
-          select: "username email avatar",
+          select: "name email avatar",
         },
       })
       .sort({ updatedAt: -1 });
@@ -155,12 +234,12 @@ const getAllChats = async (req, res) => {
     const chats = await Chat.find()
       .populate(
         "participants",
-        "username email phoneNumber profilePicture isVerified",
+        "name email phoneNumber profilePicture isVerified",
       )
       .populate("property", "title address price images")
       .populate({
         path: "lastMessage",
-        populate: { path: "sender", select: "username email" },
+        populate: { path: "sender", select: "name email" },
       })
       .sort({ updatedAt: -1 });
 
@@ -181,12 +260,12 @@ const getChatById = async (req, res) => {
     const chat = await Chat.findById(chatId)
       .populate(
         "participants",
-        "username email phoneNumber profilePicture isVerified",
+        "name email phoneNumber profilePicture isVerified",
       )
       .populate("property", "title price images address")
       .populate({
         path: "lastMessage",
-        populate: { path: "sender", select: "username avatar" },
+        populate: { path: "sender", select: "name avatar" },
       });
 
     if (!chat) {

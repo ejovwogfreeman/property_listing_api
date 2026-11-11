@@ -176,17 +176,101 @@ const initializeInspectionPayment = async (req, res) => {
 // ---------------------------
 // 3️⃣ Verify Inspection Payment (Paystack)
 // ---------------------------
+// const verifyInspectionPayment = async (req, res) => {
+//   try {
+//     const { reference, inspectionId } = req.body;
+
+//     const verification = await verifyTransaction(reference);
+//     if (!verification || verification.data.status !== "success") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Payment not successful or verification failed",
+//       });
+//     }
+
+//     const inspection = await Inspection.findById(inspectionId)
+//       .populate("owner")
+//       .populate("property");
+
+//     if (!inspection) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Inspection not found" });
+//     }
+
+//     let escrow = await Escrow.findOne({ reference });
+//     if (!escrow) {
+//       escrow = await Escrow.create({
+//         property: inspection.property?._id,
+//         buyer: inspection.user,
+//         seller: inspection.owner?._id || inspection.owner,
+//         inspection: inspection._id, // <--- Linked exact inspection reference[cite: 3]
+//         amount: inspection.fee,
+//         platformFee: 0,
+//         status: "on_hold",
+//         reference,
+//         type: "inspection",
+//       });
+//     }
+
+//     const adminUser = await User.findOne({ role: "admin" });
+
+//     inspection.feePaid = true;
+//     inspection.escrowHeldBy = adminUser?._id;
+//     inspection.status = "inspection_paid";
+//     inspection.paidAt = new Date();
+//     await inspection.save();
+
+//     await Notification.create({
+//       user: inspection.user,
+//       title: "Inspection Fee Paid",
+//       message: `Your inspection fee has been paid successfully. Waiting for the agent to schedule a date.`,
+//       meta: { inspectionId, escrowId: escrow._id },
+//     });
+
+//     if (inspection.owner) {
+//       await Notification.create({
+//         user: inspection.owner._id || inspection.owner,
+//         title: "Inspection Fee Received - Action Required",
+//         message: `Inspection fee for "${inspection.property?.title}" is paid. Please schedule an inspection date.`,
+//         meta: { inspectionId, escrowId: escrow._id },
+//       });
+//     }
+
+//     if (adminUser) {
+//       await Notification.create({
+//         user: adminUser._id,
+//         title: "New Escrow Created",
+//         message: `A new inspection payment has been verified and an escrow is pending your review.`,
+//         meta: { inspectionId, escrowId: escrow._id },
+//       });
+//     }
+
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "inspection_fee_paid",
+//         title: "Inspection Payment Confirmed",
+//         message: `Inspection fee has been verified and escrow created.`,
+//         inspectionId,
+//         escrowId: escrow._id,
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message:
+//         "Payment verified, inspection marked as paid, and escrow created successfully",
+//       inspection,
+//       escrow,
+//     });
+//   } catch (err) {
+//     console.error("verifyInspectionPayment error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
 const verifyInspectionPayment = async (req, res) => {
   try {
     const { reference, inspectionId } = req.body;
-
-    const verification = await verifyTransaction(reference);
-    if (!verification || verification.data.status !== "success") {
-      return res.status(400).json({
-        success: false,
-        message: "Payment not successful or verification failed",
-      });
-    }
 
     const inspection = await Inspection.findById(inspectionId)
       .populate("owner")
@@ -198,13 +282,45 @@ const verifyInspectionPayment = async (req, res) => {
         .json({ success: false, message: "Inspection not found" });
     }
 
+    // 🛡️ GUARD 1: Early return if already paid or fee-released
+    if (
+      inspection.feePaid ||
+      inspection.status === "inspection_paid" ||
+      inspection.status === "inspection_confirmed" ||
+      inspection.status === "inspection_completed"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This inspection payment has already been verified and processed.",
+      });
+    }
+
+    const verification = await verifyTransaction(reference);
+    if (!verification || verification.data.status !== "success") {
+      return res.status(400).json({
+        success: false,
+        message: "Payment not successful or verification failed",
+      });
+    }
+
+    // 🛡️ GUARD 2: Strict amount validation against expected inspection fee (Paystack returns amount in kobo)
+    const expectedAmountInKobo = inspection.fee * 100;
+    if (verification.data.amount !== expectedAmountInKobo) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Amount mismatch detected! The paid amount does not match the expected inspection fee.",
+      });
+    }
+
     let escrow = await Escrow.findOne({ reference });
     if (!escrow) {
       escrow = await Escrow.create({
         property: inspection.property?._id,
         buyer: inspection.user,
         seller: inspection.owner?._id || inspection.owner,
-        inspection: inspection._id, // <--- Linked exact inspection reference[cite: 3]
+        inspection: inspection._id, // <--- Linked exact inspection reference
         amount: inspection.fee,
         platformFee: 0,
         status: "on_hold",

@@ -397,54 +397,7 @@ const Notification = require("../models/notification");
 const Inspection = require("../models/inspection");
 const Purchase = require("../models/purchase");
 const Transaction = require("../models/transaction");
-const Dispute = require("../models/dispute"); // 👈 Added missing Dispute import
-
-// ---------------------------
-// Create Escrow (When a purchase or inspection is initialized)
-// ---------------------------
-const createEscrow = async (req, res) => {
-  try {
-    const {
-      propertyId,
-      sellerId,
-      amount,
-      type,
-      purchaseId,
-      inspectionId,
-      reference,
-    } = req.body;
-    const buyerId = req.user._id;
-
-    if (!propertyId || !sellerId || !amount || !type) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Missing required escrow fields (propertyId, sellerId, amount, type)",
-      });
-    }
-
-    const escrow = await Escrow.create({
-      property: propertyId,
-      buyer: buyerId,
-      seller: sellerId,
-      amount,
-      type,
-      purchase: purchaseId || undefined,
-      inspection: inspectionId || undefined,
-      reference: reference || `ESCROW-${Date.now()}`,
-      status: "on_hold",
-    });
-
-    return res.status(201).json({
-      success: true,
-      message: "Escrow record created successfully",
-      escrow,
-    });
-  } catch (err) {
-    console.error("createEscrow error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
+const Dispute = require("../models/dispute");
 
 // ---------------------------
 // Get All Escrows (Admin Only)
@@ -568,7 +521,6 @@ const changeEscrowStatus = async (req, res) => {
 
     const previousStatus = escrow.status;
 
-    // Check for open disputes before releasing
     if (status === "released" && previousStatus !== "released") {
       let openDispute = null;
 
@@ -600,7 +552,6 @@ const changeEscrowStatus = async (req, res) => {
       }
     }
 
-    // Release to seller
     if (status === "released" && previousStatus !== "released") {
       const seller = await User.findById(escrow.seller);
       if (!seller) {
@@ -650,7 +601,6 @@ const changeEscrowStatus = async (req, res) => {
           : "Funds released by admin");
     }
 
-    // Reverse release
     if (previousStatus === "released" && status !== "released") {
       const seller = await User.findById(escrow.seller);
       if (seller) {
@@ -801,7 +751,6 @@ const refundEscrow = async (req, res) => {
 };
 
 module.exports = {
-  createEscrow,
   getAllEscrows,
   getEscrowById,
   getAgentEscrows,
