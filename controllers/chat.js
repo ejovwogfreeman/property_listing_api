@@ -4,6 +4,36 @@ const Message = require("../models/message");
 const Property = require("../models/property");
 
 // ==========================
+// 0. One-Time Legacy Migration (Runs on startup)
+// ==========================
+// ==========================
+// 0. One-Time Legacy Migration (Runs on startup)
+// ==========================
+const runMessageReadMigration = async () => {
+  try {
+    const result = await Message.updateMany(
+      { $or: [{ readBy: { $exists: false } }, { readBy: { $size: 0 } }] },
+      [
+        { $set: { readBy: ["$sender"] } }, // 👈 Pipeline update syntax correctly references the sender field
+      ],
+    );
+    if (result.modifiedCount > 0) {
+      console.log(
+        `[Migration] Marked ${result.modifiedCount} legacy messages as read.`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[Migration Error] Failed to mark legacy messages as read:",
+      err,
+    );
+  }
+};
+
+// Execute migration immediately when the file loads
+runMessageReadMigration();
+
+// ==========================
 // 1. Create or Fetch a 1-on-1 Chat
 // ==========================
 const createOrGetChat = async (req, res) => {
@@ -23,7 +53,6 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // ✅ populate owner so owner._id works safely
     const property = await Property.findById(propertyId).populate("owner");
 
     if (!property) {
@@ -32,23 +61,22 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    // ✅ safe owner check (works only when owner is populated)
-    if (property.owner._id.toString() !== agentId.toString()) {
+    const ownerId = property.owner?._id
+      ? property.owner._id.toString()
+      : property.owner?.toString();
+    if (ownerId !== agentId.toString()) {
       return res.status(400).json({
         message: "This property does not belong to this agent",
       });
     }
 
-    // ✅ normalize participants to prevent duplicates
     const participants = [userId.toString(), agentId.toString()].sort();
 
-    // ✅ check if chat already exists for this user-agent-property
     let chat = await Chat.findOne({
       property: propertyId,
       participants,
     });
 
-    // ✅ if not found, create new chat
     if (!chat) {
       try {
         chat = await Chat.create({
@@ -56,7 +84,6 @@ const createOrGetChat = async (req, res) => {
           property: propertyId,
         });
       } catch (err) {
-        // handle race condition (double request safety)
         chat = await Chat.findOne({
           property: propertyId,
           participants,
@@ -73,7 +100,7 @@ const createOrGetChat = async (req, res) => {
 };
 
 // ==========================
-// 2. Get all chats for the logged-in user
+// 2. Get all chats for the logged-in user (With Unread Counts & Address)
 // ==========================
 const getUserChats = async (req, res) => {
   try {
@@ -86,7 +113,7 @@ const getUserChats = async (req, res) => {
         "participants",
         "username email phoneNumber profilePicture isVerified",
       )
-      .populate("property", "title price images")
+      .populate("property", "title price images address")
       .populate({
         path: "lastMessage",
         populate: {
@@ -96,7 +123,24 @@ const getUserChats = async (req, res) => {
       })
       .sort({ updatedAt: -1 });
 
-    return res.json(chats);
+    const chatsWithUnread = await Promise.all(
+      chats.map(async (chat) => {
+        const chatObj = chat.toObject();
+
+        const unreadCount = await Message.countDocuments({
+          chat: chat._id,
+          sender: { $ne: userId },
+          readBy: { $ne: userId },
+        });
+
+        return {
+          ...chatObj,
+          unreadCount,
+        };
+      }),
+    );
+
+    return res.json(chatsWithUnread);
   } catch (error) {
     console.error("Get user chats error:", error);
     return res.status(500).json({ message: error.message });
@@ -104,7 +148,7 @@ const getUserChats = async (req, res) => {
 };
 
 // ==========================
-// 3. Get all chats
+// 3. Get all chats (Admin view)
 // ==========================
 const getAllChats = async (req, res) => {
   try {
@@ -113,7 +157,7 @@ const getAllChats = async (req, res) => {
         "participants",
         "username email phoneNumber profilePicture isVerified",
       )
-      .populate("property", "title address")
+      .populate("property", "title address price images")
       .populate({
         path: "lastMessage",
         populate: { path: "sender", select: "username email" },
@@ -127,7 +171,7 @@ const getAllChats = async (req, res) => {
 };
 
 // ==========================
-// 4. Get a single chat by ID
+// 4. Get a single chat by ID (With Address)
 // ==========================
 const getChatById = async (req, res) => {
   try {
@@ -139,7 +183,7 @@ const getChatById = async (req, res) => {
         "participants",
         "username email phoneNumber profilePicture isVerified",
       )
-      .populate("property", "title price images")
+      .populate("property", "title price images address")
       .populate({
         path: "lastMessage",
         populate: { path: "sender", select: "username avatar" },
@@ -149,8 +193,6 @@ const getChatById = async (req, res) => {
       return res.status(404).json({ message: "Chat not found" });
     }
 
-    // ✅ SECURITY CHECK
-    // ✅ FIXED SECURITY CHECK
     const isParticipant = chat.participants.some(
       (p) => p._id.toString() === userId.toString(),
     );
