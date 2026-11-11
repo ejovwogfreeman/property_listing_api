@@ -5,22 +5,47 @@ const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 /**
  * Helper function to sanitize/filter internal property fields for non-owners/non-admins
  */
+// const sanitizePropertyForUser = (propObj, userId, userRole) => {
+//   if (!propObj) return propObj;
+
+//   const ownerId = propObj.owner?._id
+//     ? propObj.owner._id.toString()
+//     : propObj.owner?.toString();
+//   const isOwner = userId && ownerId && userId.toString() === ownerId;
+//   const isAdmin = userRole === "admin";
+
+//   // If not owner and not admin, strip internal sensitive fields
+//   if (!isOwner && !isAdmin) {
+//     delete propObj.adminNotes;
+//     delete propObj.flagReason;
+//     delete propObj.statusHistory;
+//     delete propObj.rejectionReason;
+//   }
+//   return propObj;
+// };
+
 const sanitizePropertyForUser = (propObj, userId, userRole) => {
   if (!propObj) return propObj;
 
   const ownerId = propObj.owner?._id
     ? propObj.owner._id.toString()
     : propObj.owner?.toString();
+
   const isOwner = userId && ownerId && userId.toString() === ownerId;
   const isAdmin = userRole === "admin";
 
-  // If not owner and not admin, strip internal sensitive fields
-  if (!isOwner && !isAdmin) {
+  // 1. adminNotes are STRICTLY for admins only (even the owner cannot see them)
+  if (!isAdmin) {
     delete propObj.adminNotes;
+  }
+
+  // 2. Strip other internal audit/dispute fields for anyone who isn't the owner or admin
+  if (!isOwner && !isAdmin) {
     delete propObj.flagReason;
     delete propObj.statusHistory;
     delete propObj.rejectionReason;
   }
+
   return propObj;
 };
 
@@ -576,6 +601,79 @@ const flagProperty = async (req, res) => {
 /**
  * @desc Add an admin note to a property listing & notify the agent privately
  */
+// const addAdminNote = async (req, res) => {
+//   try {
+//     const { propertyId } = req.params;
+//     const { note } = req.body;
+
+//     if (!note || !note.trim()) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Note content cannot be empty.",
+//       });
+//     }
+
+//     if (req.user.role !== "admin") {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Access denied. Only admins can add notes.",
+//       });
+//     }
+
+//     const property = await Property.findById(propertyId).populate("owner");
+//     if (!property) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Property not found",
+//       });
+//     }
+
+//     const newNote = {
+//       note,
+//       author: {
+//         _id: req.user._id,
+//         name: req.user.name,
+//       },
+//       createdAt: new Date(),
+//     };
+
+//     property.adminNotes.push(newNote);
+//     await property.save();
+
+//     const savedNote = property.adminNotes[property.adminNotes.length - 1];
+
+//     // Notify agent/owner privately (targeted socket instead of global broadcast)
+//     const ownerId = property.owner?._id || property.owner;
+//     if (ownerId) {
+//       const notificationMessage = `An admin left a note on your property "${property.title}": "${note}"`;
+
+//       const notif = await Notification.create({
+//         user: ownerId,
+//         title: "New Admin Note",
+//         message: notificationMessage,
+//         meta: { propertyId: property._id },
+//       });
+
+//       const ownerSocketId = global.onlineUsers?.get(ownerId.toString());
+//       if (ownerSocketId && global.io) {
+//         global.io.to(ownerSocketId).emit("notification", notif);
+//       }
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       note: savedNote,
+//     });
+//   } catch (err) {
+//     console.error("addAdminNote error:", err);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+/**
+ * @desc Add an admin note to a property listing (Internal admin log only)
+ * @route POST /api/properties/:propertyId/notes
+ */
 const addAdminNote = async (req, res) => {
   try {
     const { propertyId } = req.params;
@@ -595,7 +693,7 @@ const addAdminNote = async (req, res) => {
       });
     }
 
-    const property = await Property.findById(propertyId).populate("owner");
+    const property = await Property.findById(propertyId);
     if (!property) {
       return res.status(404).json({
         success: false,
@@ -617,23 +715,8 @@ const addAdminNote = async (req, res) => {
 
     const savedNote = property.adminNotes[property.adminNotes.length - 1];
 
-    // Notify agent/owner privately (targeted socket instead of global broadcast)
-    const ownerId = property.owner?._id || property.owner;
-    if (ownerId) {
-      const notificationMessage = `An admin left a note on your property "${property.title}": "${note}"`;
-
-      const notif = await Notification.create({
-        user: ownerId,
-        title: "New Admin Note",
-        message: notificationMessage,
-        meta: { propertyId: property._id },
-      });
-
-      const ownerSocketId = global.onlineUsers?.get(ownerId.toString());
-      if (ownerSocketId && global.io) {
-        global.io.to(ownerSocketId).emit("notification", notif);
-      }
-    }
+    // NOTE: Notifications and socket events have been completely removed.
+    // Admin notes remain strictly internal for dispute logging.
 
     return res.status(200).json({
       success: true,
