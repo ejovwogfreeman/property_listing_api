@@ -521,6 +521,12 @@ const changeEscrowStatus = async (req, res) => {
 
     const previousStatus = escrow.status;
 
+    // Determine exact payout amount: netPayout for purchases, full amount for inspections
+    const isPurchase = escrow.type === "purchase" || Boolean(escrow.purchase);
+    const payoutAmount = isPurchase
+      ? (escrow.netPayout ?? escrow.amount - (escrow.platformFee || 0))
+      : escrow.amount;
+
     if (status === "released" && previousStatus !== "released") {
       let openDispute = null;
 
@@ -550,9 +556,7 @@ const changeEscrowStatus = async (req, res) => {
           disputeId: openDispute._id,
         });
       }
-    }
 
-    if (status === "released" && previousStatus !== "released") {
       const seller = await User.findById(escrow.seller);
       if (!seller) {
         return res
@@ -560,15 +564,36 @@ const changeEscrowStatus = async (req, res) => {
           .json({ success: false, message: "Seller/Agent not found" });
       }
 
-      seller.balance += escrow.amount;
+      seller.balance += payoutAmount;
       await seller.save();
+
+      // 📝 Record the release in the agent’s wallet history / transactions
+      await Transaction.create({
+        user: seller._id,
+        amount: payoutAmount,
+        type: "escrow_release",
+        status: "completed",
+        reference: escrow.reference,
+        meta: { escrowId: escrow._id, property: escrow.property },
+      });
 
       await Notification.create({
         user: seller._id,
         title: "Escrow Released",
-        message: `₦${escrow.amount} from escrow has been released and added to your wallet balance.`,
+        message: `₦${payoutAmount} from escrow has been released and added to your wallet balance.`,
         meta: { escrowId: escrow._id },
       });
+
+      // 🔌 Send socket notification to that agent only for instant refresh
+      if (global.io) {
+        global.io.to(seller._id.toString()).emit("notification", {
+          type: "escrow_released",
+          title: "Escrow Released",
+          message: `₦${payoutAmount} has been added to your wallet.`,
+          balance: seller.balance,
+          escrowId: escrow._id,
+        });
+      }
 
       if (escrow.inspection) {
         await Inspection.findByIdAndUpdate(escrow.inspection, {
@@ -604,8 +629,29 @@ const changeEscrowStatus = async (req, res) => {
     if (previousStatus === "released" && status !== "released") {
       const seller = await User.findById(escrow.seller);
       if (seller) {
-        seller.balance -= escrow.amount;
+        seller.balance -= payoutAmount;
         await seller.save();
+
+        // Record reversal transaction in wallet history
+        await Transaction.create({
+          user: seller._id,
+          amount: -payoutAmount,
+          type: "escrow_release",
+          status: "completed",
+          reference: `rev-${escrow.reference}`,
+          meta: { escrowId: escrow._id, note: "Escrow release reversed" },
+        });
+
+        // 🔌 Notify agent via socket on reversal as well
+        if (global.io) {
+          global.io.to(seller._id.toString()).emit("notification", {
+            type: "escrow_reversal",
+            title: "Escrow Release Reversed",
+            message: `₦${payoutAmount} has been deducted from your wallet due to an escrow status change.`,
+            balance: seller.balance,
+            escrowId: escrow._id,
+          });
+        }
       }
 
       if (escrow.inspection) {

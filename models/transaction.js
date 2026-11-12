@@ -30,16 +30,34 @@ const TransactionSchema = new Schema(
     },
 
     // 🧾 Only two allowed types
+    // type: {
+    //   type: String,
+    //   enum: ["wallet_funding", "agent_payment", "withdrawal"],
+    //   required: true,
+    // },
+
+    // // 📊 Payment status
+    // status: {
+    //   type: String,
+    //   enum: ["pending", "approved", "declined", "failed"],
+    //   default: "pending",
+    // },
+
+    // In models/transaction.js
     type: {
       type: String,
-      enum: ["wallet_funding", "agent_payment", "withdrawal"],
+      enum: [
+        "wallet_funding",
+        "agent_payment",
+        "withdrawal",
+        "escrow_release",
+        "escrow_refund",
+      ],
       required: true,
     },
-
-    // 📊 Payment status
     status: {
       type: String,
-      enum: ["pending", "approved", "declined", "failed"],
+      enum: ["pending", "approved", "declined", "failed", "completed"],
       default: "pending",
     },
 
