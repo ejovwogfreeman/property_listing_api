@@ -67,7 +67,6 @@ const requestPurchase = async (req, res) => {
       (property.escrowFee || 0) +
       (property.serviceCharge || 0);
 
-    // Platform fee equals the escrow fee
     const platformFee = property.escrowFee || 0;
 
     const purchase = await Purchase.create({
@@ -133,7 +132,7 @@ const initializePurchasePayment = async (req, res) => {
 
     const init = await initializeTransaction(
       req.user.email,
-      purchase.price * 100,
+      Math.round(purchase.price * 100),
       reference,
       callback_url,
     );
@@ -145,17 +144,20 @@ const initializePurchasePayment = async (req, res) => {
       meta: { purchaseId },
     });
 
-    await Notification.create({
-      user: purchase.owner._id || purchase.owner,
-      title: "Purchase Payment Started",
-      message: `A buyer has initiated payment for your property.`,
-      meta: { purchaseId },
-    });
-
-    const adminUser = await User.findOne({ role: "admin" });
-    if (adminUser) {
+    const sellerId = purchase.owner?._id || purchase.owner;
+    if (sellerId) {
       await Notification.create({
-        user: adminUser._id,
+        user: sellerId,
+        title: "Purchase Payment Started",
+        message: `A buyer has initiated payment for your property.`,
+        meta: { purchaseId },
+      });
+    }
+
+    const adminUsers = await User.find({ role: "admin" });
+    for (const admin of adminUsers) {
+      await Notification.create({
+        user: admin._id,
         title: "New Purchase Payment Started",
         message: `A new purchase transaction has been initiated by a buyer.`,
         meta: { purchaseId },
@@ -188,86 +190,6 @@ const initializePurchasePayment = async (req, res) => {
 // ---------------------------
 // 3️⃣ Verify Purchase Payment (Paystack)
 // ---------------------------
-// const verifyPurchasePayment = async (req, res) => {
-//   try {
-//     const { reference, purchaseId } = req.body;
-
-//     const verification = await verifyTransaction(reference);
-//     if (!verification || verification.data.status !== "success")
-//       return res.status(400).json({ message: "Payment not successful" });
-
-//     const purchase = await Purchase.findById(purchaseId).populate("owner");
-//     if (!purchase)
-//       return res.status(404).json({ message: "Purchase not found" });
-
-//     const adminUser = await User.findOne({ role: "admin" });
-
-//     let escrow = await Escrow.findOne({ reference });
-//     if (!escrow) {
-//       escrow = await Escrow.create({
-//         reference: reference,
-//         property: purchase.property,
-//         buyer: purchase.buyer,
-//         seller: purchase.owner._id || purchase.owner,
-//         purchase: purchase._id, // <--- Linked exact purchase reference[cite: 3]
-//         amount: purchase.price,
-//         platformFee: purchase.platformFee || 0,
-//         status: "on_hold",
-//         type: "purchase",
-//       });
-//     }
-
-//     purchase.feePaid = true;
-//     purchase.escrowHeldBy = adminUser ? adminUser._id : null;
-//     purchase.status = "property_payment_made";
-//     purchase.paidAt = new Date();
-//     await purchase.save();
-
-//     await Notification.create({
-//       user: purchase.buyer,
-//       title: "Purchase Payment Verified",
-//       message: `Your purchase payment is verified and escrow has been created pending admin review.`,
-//       meta: { purchaseId, escrowId: escrow._id },
-//     });
-
-//     await Notification.create({
-//       user: purchase.owner._id || purchase.owner,
-//       title: "Purchase Payment Held in Escrow",
-//       message: `Payment for your property is verified and pending review.`,
-//       meta: { purchaseId, escrowId: escrow._id },
-//     });
-
-//     if (adminUser) {
-//       await Notification.create({
-//         user: adminUser._id,
-//         title: "New Purchase Escrow Pending Review",
-//         message: `Payment verified for purchase. New escrow is pending your review.`,
-//         meta: { purchaseId, escrowId: escrow._id },
-//       });
-//     }
-
-//     if (global.io) {
-//       global.io.emit("notification", {
-//         type: "purchase_payment_verified",
-//         title: "Purchase Payment Verified",
-//         message: "A purchase payment has been verified and escrow created.",
-//         purchaseId,
-//         escrowId: escrow._id,
-//       });
-//     }
-
-//     res.json({
-//       success: true,
-//       message: "Payment verified successfully. Escrow created as pending.",
-//       purchase,
-//       escrow,
-//     });
-//   } catch (err) {
-//     console.error("verifyPurchasePayment error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
-
 const verifyPurchasePayment = async (req, res) => {
   try {
     const { reference, purchaseId } = req.body;
@@ -278,7 +200,6 @@ const verifyPurchasePayment = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Purchase not found" });
 
-    // 🛡️ GUARD 1: Early return if already paid or verified
     if (
       purchase.feePaid ||
       purchase.status === "property_payment_made" ||
@@ -298,8 +219,7 @@ const verifyPurchasePayment = async (req, res) => {
         message: "Payment not successful or verification failed",
       });
 
-    // 🛡️ GUARD 2: Strict amount validation against expected purchase price (Paystack returns amount in kobo)
-    const expectedAmountInKobo = purchase.price * 100;
+    const expectedAmountInKobo = Math.round(purchase.price * 100);
     if (verification.data.amount !== expectedAmountInKobo) {
       return res.status(400).json({
         success: false,
@@ -310,6 +230,9 @@ const verifyPurchasePayment = async (req, res) => {
 
     const adminUser = await User.findOne({ role: "admin" });
 
+    const platformFee = purchase.platformFee || 0;
+    const netPayout = purchase.price - platformFee;
+
     let escrow = await Escrow.findOne({ reference });
     if (!escrow) {
       escrow = await Escrow.create({
@@ -317,9 +240,10 @@ const verifyPurchasePayment = async (req, res) => {
         property: purchase.property,
         buyer: purchase.buyer,
         seller: purchase.owner._id || purchase.owner,
-        purchase: purchase._id, // <--- Linked exact purchase reference
+        purchase: purchase._id,
         amount: purchase.price,
-        platformFee: purchase.platformFee || 0,
+        netPayout: netPayout,
+        platformFee: platformFee,
         status: "on_hold",
         type: "purchase",
       });
@@ -383,6 +307,13 @@ const schedulePurchaseHandover = async (req, res) => {
   try {
     const { purchaseId, scheduledDate } = req.body;
     const userId = req.user._id;
+
+    if (!scheduledDate || new Date(scheduledDate) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot schedule a handover date and time in the past.",
+      });
+    }
 
     const purchase = await Purchase.findById(purchaseId).populate("property");
     if (!purchase) {
@@ -543,7 +474,6 @@ const confirmPurchaseHandover = async (req, res) => {
     purchase.confirmedAt = new Date();
     await purchase.save();
 
-    // Query escrow by exact purchase ID reference[cite: 3]
     let escrow = await Escrow.findOne({
       purchase: purchase._id,
     });
@@ -703,7 +633,6 @@ const changePurchaseStatus = async (req, res) => {
       purchase.completedAt = new Date();
     }
 
-    // Query escrow by exact purchase reference[cite: 3]
     const escrow = await Escrow.findOne({
       purchase: purchase._id,
     });
@@ -715,7 +644,7 @@ const changePurchaseStatus = async (req, res) => {
       if (escrow) {
         escrow.status = "released";
         escrow.releasedAt = new Date();
-        escrow.releasedBy = req.user._id; // Admin user ID
+        escrow.releasedBy = req.user._id;
         if (req.body.reason) escrow.reason = req.body.reason;
         await escrow.save();
       }
@@ -797,7 +726,6 @@ const getPurchaseDetails = async (req, res) => {
   }
 };
 
-// Get All Purchases for Logged-in User
 const getUserPurchases = async (req, res) => {
   try {
     const userId = req.params.id || req.user._id;
@@ -818,7 +746,6 @@ const getUserPurchases = async (req, res) => {
   }
 };
 
-// Get all purchases of properties managed by the logged-in agent
 const getAgentPurchases = async (req, res) => {
   try {
     const agentId = req.params.id || req.user._id;
@@ -850,7 +777,6 @@ const getAgentPurchases = async (req, res) => {
   }
 };
 
-// Get all purchases in the system
 const getAllPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find()
