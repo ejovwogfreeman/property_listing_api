@@ -304,15 +304,95 @@ const verifyInspectionPayment = async (req, res) => {
 // ---------------------------
 // 4️⃣ Schedule Inspection (Agent / Property Owner ONLY)
 // ---------------------------
+// const scheduleInspection = async (req, res) => {
+//   try {
+//     const { inspectionId, scheduledDate } = req.body;
+//     const userId = req.user._id;
+
+//     if (!scheduledDate || new Date(scheduledDate) < new Date()) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Cannot schedule an inspection date and time in the past.",
+//       });
+//     }
+
+//     const inspection =
+//       await Inspection.findById(inspectionId).populate("property");
+//     if (!inspection) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Inspection not found" });
+//     }
+
+//     const ownerId = inspection.owner?._id || inspection.owner;
+//     const isOwner = ownerId && ownerId.toString() === userId.toString();
+//     const isAgent =
+//       inspection.property?.agent &&
+//       inspection.property.agent.toString() === userId.toString();
+
+//     if (!isOwner && !isAgent && req.user.role !== "admin") {
+//       return res.status(403).json({
+//         success: false,
+//         message:
+//           "Unauthorized. Only the property owner or agent can schedule an inspection date.",
+//       });
+//     }
+
+//     if (!inspection.feePaid) {
+//       return res.status(400).json({
+//         success: false,
+//         message:
+//           "Cannot schedule date because the inspection fee has not been paid by the user yet.",
+//       });
+//     }
+
+//     inspection.scheduledDate = scheduledDate;
+//     inspection.status = "inspection_scheduled";
+//     inspection.scheduledAt = new Date();
+//     await inspection.save();
+
+//     await Notification.create({
+//       user: inspection.user,
+//       title: "Inspection Date Scheduled",
+//       message: `The agent has scheduled your inspection for "${inspection.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or reschedule if unsuitable.`,
+//       meta: { inspectionId },
+//     });
+
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "inspection_scheduled",
+//         title: "Inspection Scheduled",
+//         message: `An inspection date has been set by the agent for "${inspection.property?.title}".`,
+//         inspectionId,
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Inspection scheduled successfully. Notified buyer.",
+//       inspection,
+//     });
+//   } catch (err) {
+//     console.error("scheduleInspection error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 const scheduleInspection = async (req, res) => {
   try {
     const { inspectionId, scheduledDate } = req.body;
     const userId = req.user._id;
 
-    if (!scheduledDate || new Date(scheduledDate) < new Date()) {
+    const parsedDate = new Date(scheduledDate);
+    if (
+      !scheduledDate ||
+      isNaN(parsedDate.getTime()) ||
+      parsedDate <= new Date()
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Cannot schedule an inspection date and time in the past.",
+        message:
+          "Please provide a valid future date and time for the inspection.",
       });
     }
 
@@ -346,7 +426,7 @@ const scheduleInspection = async (req, res) => {
       });
     }
 
-    inspection.scheduledDate = scheduledDate;
+    inspection.scheduledDate = parsedDate;
     inspection.status = "inspection_scheduled";
     inspection.scheduledAt = new Date();
     await inspection.save();
@@ -354,7 +434,7 @@ const scheduleInspection = async (req, res) => {
     await Notification.create({
       user: inspection.user,
       title: "Inspection Date Scheduled",
-      message: `The agent has scheduled your inspection for "${inspection.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or reschedule if unsuitable.`,
+      message: `The agent has scheduled your inspection for "${inspection.property?.title}" on ${parsedDate.toLocaleString()}. Please confirm or reschedule if unsuitable.`,
       meta: { inspectionId },
     });
 

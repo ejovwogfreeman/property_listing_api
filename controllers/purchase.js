@@ -303,15 +303,94 @@ const verifyPurchasePayment = async (req, res) => {
 // ---------------------------
 // 4️⃣ Schedule Handover (Agent / Property Owner ONLY)
 // ---------------------------
+// const schedulePurchaseHandover = async (req, res) => {
+//   try {
+//     const { purchaseId, scheduledDate } = req.body;
+//     const userId = req.user._id;
+
+//     if (!scheduledDate || new Date(scheduledDate) < new Date()) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Cannot schedule a handover date and time in the past.",
+//       });
+//     }
+
+//     const purchase = await Purchase.findById(purchaseId).populate("property");
+//     if (!purchase) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Purchase not found" });
+//     }
+
+//     const ownerId = purchase.owner?._id || purchase.owner;
+//     const isOwner = ownerId && ownerId.toString() === userId.toString();
+//     const isAgent =
+//       purchase.property?.agent &&
+//       purchase.property.agent.toString() === userId.toString();
+
+//     if (!isOwner && !isAgent && req.user.role !== "admin") {
+//       return res.status(403).json({
+//         success: false,
+//         message:
+//           "Unauthorized. Only the property owner or agent can schedule a handover date.",
+//       });
+//     }
+
+//     if (!purchase.feePaid) {
+//       return res.status(400).json({
+//         success: false,
+//         message:
+//           "Cannot schedule handover because the purchase payment has not been made yet.",
+//       });
+//     }
+
+//     purchase.scheduledDate = scheduledDate;
+//     purchase.status = "handover_scheduled";
+//     purchase.scheduledAt = new Date();
+//     await purchase.save();
+
+//     await Notification.create({
+//       user: purchase.buyer,
+//       title: "Handover Date Scheduled",
+//       message: `The agent has scheduled your property handover for "${purchase.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or request a reschedule if unsuitable.`,
+//       meta: { purchaseId },
+//     });
+
+//     if (global.io) {
+//       global.io.emit("notification", {
+//         type: "handover_scheduled",
+//         title: "Handover Scheduled",
+//         message: `A handover date has been set by the agent for "${purchase.property?.title}".`,
+//         purchaseId,
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Handover scheduled successfully. Buyer notified.",
+//       purchase,
+//     });
+//   } catch (err) {
+//     console.error("scheduleHandover error:", err);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 const schedulePurchaseHandover = async (req, res) => {
   try {
     const { purchaseId, scheduledDate } = req.body;
     const userId = req.user._id;
 
-    if (!scheduledDate || new Date(scheduledDate) < new Date()) {
+    const parsedDate = new Date(scheduledDate);
+    if (
+      !scheduledDate ||
+      isNaN(parsedDate.getTime()) ||
+      parsedDate <= new Date()
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Cannot schedule a handover date and time in the past.",
+        message:
+          "Please provide a valid future date and time for the handover.",
       });
     }
 
@@ -344,7 +423,7 @@ const schedulePurchaseHandover = async (req, res) => {
       });
     }
 
-    purchase.scheduledDate = scheduledDate;
+    purchase.scheduledDate = parsedDate;
     purchase.status = "handover_scheduled";
     purchase.scheduledAt = new Date();
     await purchase.save();
@@ -352,7 +431,7 @@ const schedulePurchaseHandover = async (req, res) => {
     await Notification.create({
       user: purchase.buyer,
       title: "Handover Date Scheduled",
-      message: `The agent has scheduled your property handover for "${purchase.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or request a reschedule if unsuitable.`,
+      message: `The agent has scheduled your property handover for "${purchase.property?.title}" on ${parsedDate.toLocaleString()}. Please confirm or request a reschedule if unsuitable.`,
       meta: { purchaseId },
     });
 

@@ -8,7 +8,7 @@ const Property = require("../models/property");
 // ==========================
 const createOrGetChat = async (req, res) => {
   try {
-    const { agentId, propertyId, createIfMissing } = req.body;
+    const { agentId, propertyId, createIfMissing, text } = req.body;
     const userId = req.user._id;
 
     if (!agentId || !propertyId) {
@@ -56,7 +56,15 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
+    const trimmedText = typeof text === "string" ? text.trim() : "";
+
     if (!chat && createIfMissing) {
+      if (!trimmedText) {
+        return res.status(400).json({
+          message: "Initial message text is required to start a new chat",
+        });
+      }
+
       try {
         chat = await Chat.create({
           participants,
@@ -70,10 +78,36 @@ const createOrGetChat = async (req, res) => {
       }
     }
 
+    let initialMessage = null;
+    if (chat && trimmedText) {
+      initialMessage = await Message.create({
+        chat: chat._id,
+        sender: userId,
+        text: trimmedText,
+        readBy: [userId],
+      });
+
+      chat.lastMessage = initialMessage._id;
+      chat.updatedAt = new Date();
+      await chat.save();
+
+      initialMessage = await Message.findById(initialMessage._id).populate(
+        "sender",
+        "name email avatar",
+      );
+
+      if (global.io) {
+        global.io
+          .to(agentId.toString())
+          .emit("receive_message", initialMessage);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       exists: true,
       chat,
+      data: initialMessage,
     });
   } catch (error) {
     return res.status(500).json({
