@@ -397,7 +397,7 @@ const Notification = require("../models/notification");
 const Inspection = require("../models/inspection");
 const Purchase = require("../models/purchase");
 const Transaction = require("../models/transaction");
-const Dispute = require("../models/dispute");
+const { Dispute } = require("../models/dispute");
 
 // ---------------------------
 // Get All Escrows (Admin Only)
