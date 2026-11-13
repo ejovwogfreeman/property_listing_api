@@ -29,6 +29,7 @@ const PurchaseSchema = new Schema(
       type: String,
       enum: [
         "none",
+        "property_payment_review", // 🕒 Paystack confirmed, waiting for admin approval
         "property_payment_made",
         "handover_requested",
         "handover_scheduled",
@@ -42,6 +43,7 @@ const PurchaseSchema = new Schema(
     },
     scheduledDate: { type: Date, default: Date.now },
     initializedAt: { type: Date },
+    paystackPaidAt: { type: Date }, // 🕒 Track exact moment Paystack confirmed payment
     paidAt: { type: Date },
     scheduledAt: { type: Date },
     confirmedAt: { type: Date },

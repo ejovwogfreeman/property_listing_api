@@ -13,10 +13,11 @@ const InspectionSchema = new Schema(
         "none",
         "inspection_requested", // 1. User submits the request
         "inspection_initialized", // 2. User starts the payment process
-        "inspection_paid", // 3. Payment is verified & escrow created
-        "inspection_scheduled", // 4. Date/time for inspection is set
-        "inspection_confirmed", // 5. Owner/Admin confirms the appointment
-        "inspection_completed", // 6. Inspection has successfully taken place
+        "inspection_payment_review", // 3. Paystack confirmed, waiting for admin approval
+        "inspection_paid", // 4. Payment is verified & escrow created
+        "inspection_scheduled", // 5. Date/time for inspection is set
+        "inspection_confirmed", // 6. Owner/Admin confirms the appointment
+        "inspection_completed", // 7. Inspection has successfully taken place
         "inspection_cancelled", // (Good to have just in case)
       ],
       default: "none",
@@ -37,6 +38,7 @@ const InspectionSchema = new Schema(
     feeReleased: { type: Boolean, default: false },
     scheduledDate: { type: Date, default: Date.now },
     initializedAt: { type: Date },
+    paystackPaidAt: { type: Date }, // 🕒 Track exact moment Paystack confirmed payment
     paidAt: { type: Date },
     scheduledAt: { type: Date },
     confirmedAt: { type: Date },

@@ -10,6 +10,18 @@ const {
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
 
+// Helper for targeted socket notifications
+const notifyUser = (userId, event, data) => {
+  if (global.io && userId) {
+    global.io.to(userId.toString()).emit(event, data);
+  }
+};
+
+const notifyBoth = (buyerId, agentId, event, data) => {
+  notifyUser(buyerId, event, data);
+  notifyUser(agentId, event, data);
+};
+
 // ---------------------------
 // 1️⃣ Request Purchase
 // ---------------------------
@@ -86,14 +98,13 @@ const requestPurchase = async (req, res) => {
       meta: { purchaseId: purchase._id },
     });
 
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "purchase_requested",
-        title: "Purchase Requested",
-        message: `Purchase requested for "${property.title}".`,
-        purchaseId: purchase._id,
-      });
-    }
+    notifyUser(userId, "notification", {
+      type: "purchase_requested",
+      title: "Purchase Requested",
+      message: `Purchase requested for "${property.title}".`,
+      purchaseId: purchase._id,
+      status: purchase.status,
+    });
 
     res.status(201).json({
       success: true,
@@ -144,34 +155,13 @@ const initializePurchasePayment = async (req, res) => {
       meta: { purchaseId },
     });
 
-    const sellerId = purchase.owner?._id || purchase.owner;
-    if (sellerId) {
-      await Notification.create({
-        user: sellerId,
-        title: "Purchase Payment Started",
-        message: `A buyer has initiated payment for your property.`,
-        meta: { purchaseId },
-      });
-    }
-
-    const adminUsers = await User.find({ role: "admin" });
-    for (const admin of adminUsers) {
-      await Notification.create({
-        user: admin._id,
-        title: "New Purchase Payment Started",
-        message: `A new purchase transaction has been initiated by a buyer.`,
-        meta: { purchaseId },
-      });
-    }
-
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "purchase_payment_initialized",
-        title: "Purchase Payment Started",
-        message: "A new purchase transaction has begun.",
-        purchaseId,
-      });
-    }
+    notifyUser(buyerId, "notification", {
+      type: "purchase_payment_initialized",
+      title: "Purchase Payment Started",
+      message: "A new purchase transaction has begun.",
+      purchaseId,
+      status: purchase.status,
+    });
 
     res.json({
       success: true,
@@ -188,11 +178,137 @@ const initializePurchasePayment = async (req, res) => {
 };
 
 // ---------------------------
-// 3️⃣ Verify Purchase Payment (Paystack)
+// 3️⃣ Shared Payment Confirmation Logic
+// ---------------------------
+const processPurchasePaymentConfirmation = async (purchase, reference) => {
+  const verification = await verifyTransaction(reference);
+  if (!verification || verification.data.status !== "success") {
+    throw new Error("Payment not successful or verification failed");
+  }
+
+  const expectedAmountInKobo = Math.round(purchase.price * 100);
+  if (verification.data.amount !== expectedAmountInKobo) {
+    throw new Error(
+      "Amount mismatch detected! Paid amount does not match property price.",
+    );
+  }
+
+  if (
+    purchase.status === "property_payment_review" ||
+    purchase.status === "property_payment_made" ||
+    purchase.status === "completed"
+  ) {
+    return purchase;
+  }
+
+  purchase.status = "property_payment_review";
+  purchase.paystackPaidAt = new Date();
+  await purchase.save();
+
+  const sellerId = purchase.owner?._id || purchase.owner;
+
+  await Notification.create({
+    user: purchase.buyer,
+    title: "Purchase Payment Received",
+    message: `Your purchase payment is confirmed and currently under review by the admin.`,
+    meta: { purchaseId: purchase._id },
+  });
+
+  if (sellerId) {
+    await Notification.create({
+      user: sellerId,
+      title: "Purchase Payment Under Review",
+      message: `Purchase payment received and awaiting admin approval.`,
+      meta: { purchaseId: purchase._id },
+    });
+  }
+
+  const adminUsers = await User.find({ role: "admin" });
+  for (const admin of adminUsers) {
+    await Notification.create({
+      user: admin._id,
+      title: "Purchase Payment Review Required",
+      message: `A purchase payment requires your review and approval.`,
+      meta: { purchaseId: purchase._id },
+    });
+    notifyUser(admin._id, "notification", {
+      type: "property_payment_review",
+      title: "Purchase Payment Review",
+      message: `Purchase payment waiting for approval.`,
+      purchaseId: purchase._id,
+      status: purchase.status,
+    });
+  }
+
+  notifyBoth(purchase.buyer, sellerId, "notification", {
+    type: "property_payment_review",
+    title: "Payment Under Review",
+    message: `Purchase payment confirmed, awaiting admin approval.`,
+    purchaseId: purchase._id,
+    status: purchase.status,
+  });
+
+  return purchase;
+};
+
+// ---------------------------
+// 4️⃣ Buyer Callback Confirmation Route: POST /api/purchase/confirm-payment
+// ---------------------------
+const confirmPurchasePaymentCallback = async (req, res) => {
+  try {
+    const { purchaseId } = req.body;
+    const userId = req.user._id;
+
+    const purchase = await Purchase.findById(purchaseId).populate("property");
+    if (!purchase) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+    }
+
+    if (purchase.buyer?.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (!purchase.reference) {
+      return res.status(400).json({
+        success: false,
+        message: "No payment reference found for this purchase.",
+      });
+    }
+
+    try {
+      await processPurchasePaymentConfirmation(purchase, purchase.reference);
+      return res.json({
+        success: true,
+        message: "Payment successfully confirmed and submitted for review.",
+        purchase,
+      });
+    } catch (verifyErr) {
+      return res.status(400).json({
+        success: false,
+        message: verifyErr.message || "Payment not completed.",
+      });
+    }
+  } catch (err) {
+    console.error("confirmPurchasePaymentCallback error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 5️⃣ Verify & Approve Purchase Payment (Admin Only)
 // ---------------------------
 const verifyPurchasePayment = async (req, res) => {
   try {
-    const { reference, purchaseId } = req.body;
+    const { purchaseId } = req.body;
+    const adminId = req.user._id;
+
+    if (!req.user || req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ success: false, message: "Access denied. Admin only." });
+    }
 
     const purchase = await Purchase.findById(purchaseId).populate("owner");
     if (!purchase)
@@ -200,43 +316,27 @@ const verifyPurchasePayment = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Purchase not found" });
 
-    if (
-      purchase.feePaid ||
-      purchase.status === "property_payment_made" ||
-      purchase.status === "completed"
-    ) {
+    if (purchase.status !== "property_payment_review") {
       return res.status(400).json({
         success: false,
-        message:
-          "This purchase payment has already been verified and processed.",
+        message: "Purchase is not in property payment review status.",
       });
     }
 
-    const verification = await verifyTransaction(reference);
+    const verification = await verifyTransaction(purchase.reference);
     if (!verification || verification.data.status !== "success")
       return res.status(400).json({
         success: false,
-        message: "Payment not successful or verification failed",
+        message: "Paystack verification failed. Payment was not successful.",
       });
-
-    const expectedAmountInKobo = Math.round(purchase.price * 100);
-    if (verification.data.amount !== expectedAmountInKobo) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Amount mismatch detected! The paid amount does not match the expected property price.",
-      });
-    }
-
-    const adminUser = await User.findOne({ role: "admin" });
 
     const platformFee = purchase.platformFee || 0;
     const netPayout = purchase.price - platformFee;
 
-    let escrow = await Escrow.findOne({ reference });
+    let escrow = await Escrow.findOne({ reference: purchase.reference });
     if (!escrow) {
       escrow = await Escrow.create({
-        reference: reference,
+        reference: purchase.reference,
         property: purchase.property,
         buyer: purchase.buyer,
         seller: purchase.owner._id || purchase.owner,
@@ -250,43 +350,37 @@ const verifyPurchasePayment = async (req, res) => {
     }
 
     purchase.feePaid = true;
-    purchase.escrowHeldBy = adminUser ? adminUser._id : null;
+    purchase.escrowHeldBy = adminId;
     purchase.status = "property_payment_made";
     purchase.paidAt = new Date();
     await purchase.save();
 
+    const sellerId = purchase.owner?._id || purchase.owner;
+
     await Notification.create({
       user: purchase.buyer,
-      title: "Purchase Payment Verified",
-      message: `Your purchase payment is verified and escrow has been created pending admin review.`,
+      title: "Purchase Payment Approved",
+      message: `Your purchase payment has been approved by admin and escrow created.`,
       meta: { purchaseId, escrowId: escrow._id },
     });
 
-    await Notification.create({
-      user: purchase.owner._id || purchase.owner,
-      title: "Purchase Payment Held in Escrow",
-      message: `Payment for your property is verified and pending review.`,
-      meta: { purchaseId, escrowId: escrow._id },
-    });
-
-    if (adminUser) {
+    if (sellerId) {
       await Notification.create({
-        user: adminUser._id,
-        title: "New Purchase Escrow Pending Review",
-        message: `Payment verified for purchase. New escrow is pending your review.`,
+        user: sellerId,
+        title: "Purchase Payment Approved & Held in Escrow",
+        message: `Payment for your property is approved and held in escrow.`,
         meta: { purchaseId, escrowId: escrow._id },
       });
     }
 
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "purchase_payment_verified",
-        title: "Purchase Payment Verified",
-        message: "A purchase payment has been verified and escrow created.",
-        purchaseId,
-        escrowId: escrow._id,
-      });
-    }
+    notifyBoth(purchase.buyer, sellerId, "notification", {
+      type: "purchase_payment_verified",
+      title: "Purchase Payment Approved",
+      message: "Purchase payment approved and escrow created.",
+      purchaseId,
+      escrowId: escrow._id,
+      status: purchase.status,
+    });
 
     res.json({
       success: true,
@@ -301,81 +395,8 @@ const verifyPurchasePayment = async (req, res) => {
 };
 
 // ---------------------------
-// 4️⃣ Schedule Handover (Agent / Property Owner ONLY)
+// 6️⃣ Schedule Handover (Agent / Property Owner ONLY)
 // ---------------------------
-// const schedulePurchaseHandover = async (req, res) => {
-//   try {
-//     const { purchaseId, scheduledDate } = req.body;
-//     const userId = req.user._id;
-
-//     if (!scheduledDate || new Date(scheduledDate) < new Date()) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Cannot schedule a handover date and time in the past.",
-//       });
-//     }
-
-//     const purchase = await Purchase.findById(purchaseId).populate("property");
-//     if (!purchase) {
-//       return res
-//         .status(404)
-//         .json({ success: false, message: "Purchase not found" });
-//     }
-
-//     const ownerId = purchase.owner?._id || purchase.owner;
-//     const isOwner = ownerId && ownerId.toString() === userId.toString();
-//     const isAgent =
-//       purchase.property?.agent &&
-//       purchase.property.agent.toString() === userId.toString();
-
-//     if (!isOwner && !isAgent && req.user.role !== "admin") {
-//       return res.status(403).json({
-//         success: false,
-//         message:
-//           "Unauthorized. Only the property owner or agent can schedule a handover date.",
-//       });
-//     }
-
-//     if (!purchase.feePaid) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           "Cannot schedule handover because the purchase payment has not been made yet.",
-//       });
-//     }
-
-//     purchase.scheduledDate = scheduledDate;
-//     purchase.status = "handover_scheduled";
-//     purchase.scheduledAt = new Date();
-//     await purchase.save();
-
-//     await Notification.create({
-//       user: purchase.buyer,
-//       title: "Handover Date Scheduled",
-//       message: `The agent has scheduled your property handover for "${purchase.property?.title}" on ${new Date(scheduledDate).toLocaleString()}. Please confirm or request a reschedule if unsuitable.`,
-//       meta: { purchaseId },
-//     });
-
-//     if (global.io) {
-//       global.io.emit("notification", {
-//         type: "handover_scheduled",
-//         title: "Handover Scheduled",
-//         message: `A handover date has been set by the agent for "${purchase.property?.title}".`,
-//         purchaseId,
-//       });
-//     }
-
-//     res.json({
-//       success: true,
-//       message: "Handover scheduled successfully. Buyer notified.",
-//       purchase,
-//     });
-//   } catch (err) {
-//     console.error("scheduleHandover error:", err);
-//     res.status(500).json({ success: false, message: err.message });
-//   }
-// };
-
 const schedulePurchaseHandover = async (req, res) => {
   try {
     const { purchaseId, scheduledDate } = req.body;
@@ -411,7 +432,7 @@ const schedulePurchaseHandover = async (req, res) => {
       return res.status(403).json({
         success: false,
         message:
-          "Unauthorized. Only the property owner or agent can schedule a handover date.",
+          "Unauthorized. Only property owner or agent can schedule a handover.",
       });
     }
 
@@ -419,7 +440,7 @@ const schedulePurchaseHandover = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Cannot schedule handover because the purchase payment has not been made yet.",
+          "Cannot schedule handover because purchase payment has not been made.",
       });
     }
 
@@ -431,18 +452,17 @@ const schedulePurchaseHandover = async (req, res) => {
     await Notification.create({
       user: purchase.buyer,
       title: "Handover Date Scheduled",
-      message: `The agent has scheduled your property handover for "${purchase.property?.title}" on ${parsedDate.toLocaleString()}. Please confirm or request a reschedule if unsuitable.`,
+      message: `Handover scheduled for "${purchase.property?.title}" on ${parsedDate.toLocaleString()}.`,
       meta: { purchaseId },
     });
 
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "handover_scheduled",
-        title: "Handover Scheduled",
-        message: `A handover date has been set by the agent for "${purchase.property?.title}".`,
-        purchaseId,
-      });
-    }
+    notifyBoth(purchase.buyer, ownerId, "notification", {
+      type: "handover_scheduled",
+      title: "Handover Scheduled",
+      message: `Handover scheduled for ${parsedDate.toLocaleString()}.`,
+      purchaseId,
+      status: purchase.status,
+    });
 
     res.json({
       success: true,
@@ -456,7 +476,7 @@ const schedulePurchaseHandover = async (req, res) => {
 };
 
 // ---------------------------
-// 5️⃣ Reschedule / Reject Handover Date (User / Buyer)
+// 7️⃣ Reschedule / Reject Handover Date (User / Buyer)
 // ---------------------------
 const reschedulePurchaseHandover = async (req, res) => {
   try {
@@ -477,8 +497,7 @@ const reschedulePurchaseHandover = async (req, res) => {
     if (purchase.status !== "handover_scheduled") {
       return res.status(400).json({
         success: false,
-        message:
-          "You can only request a reschedule for a handover that has been scheduled.",
+        message: "You can only request a reschedule for a scheduled handover.",
       });
     }
 
@@ -492,24 +511,22 @@ const reschedulePurchaseHandover = async (req, res) => {
       await Notification.create({
         user: sellerId,
         title: "Handover Date Rejected / Reschedule Requested",
-        message: `The buyer rejected the scheduled handover date for "${purchase.property?.title}". Reason: ${reason || "Not suitable"}. Please pick a new date.`,
+        message: `Buyer rejected the scheduled handover date for "${purchase.property?.title}". Reason: ${reason || "Not suitable"}.`,
         meta: { purchaseId },
       });
     }
 
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "handover_reschedule_requested",
-        title: "Handover Reschedule Requested",
-        message: `Buyer rejected the handover date for "${purchase.property?.title}".`,
-        purchaseId,
-      });
-    }
+    notifyBoth(purchase.buyer, sellerId, "notification", {
+      type: "handover_reschedule_requested",
+      title: "Handover Reschedule Requested",
+      message: `Buyer rejected the handover date.`,
+      purchaseId,
+      status: purchase.status,
+    });
 
     res.json({
       success: true,
-      message:
-        "Handover date rejected. The agent has been notified to pick a new date.",
+      message: "Handover date rejected. Agent has been notified.",
       purchase,
     });
   } catch (err) {
@@ -519,7 +536,7 @@ const reschedulePurchaseHandover = async (req, res) => {
 };
 
 // ---------------------------
-// 6️⃣ Confirm / Accept Handover (User / Buyer ONLY)
+// 8️⃣ Confirm / Accept Handover (User / Buyer ONLY)
 // ---------------------------
 const confirmPurchaseHandover = async (req, res) => {
   try {
@@ -534,18 +551,15 @@ const confirmPurchaseHandover = async (req, res) => {
     }
 
     if (purchase.buyer?.toString() !== userId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "Unauthorized. Only the buyer can confirm this handover schedule.",
-      });
+      return res
+        .status(403)
+        .json({ success: false, message: "Unauthorized buyer." });
     }
 
     if (purchase.status !== "handover_scheduled") {
       return res.status(400).json({
         success: false,
-        message:
-          "Handover must be scheduled by the agent first before it can be confirmed.",
+        message: "Handover must be scheduled before confirmation.",
       });
     }
 
@@ -553,9 +567,7 @@ const confirmPurchaseHandover = async (req, res) => {
     purchase.confirmedAt = new Date();
     await purchase.save();
 
-    let escrow = await Escrow.findOne({
-      purchase: purchase._id,
-    });
+    let escrow = await Escrow.findOne({ purchase: purchase._id });
     if (escrow) {
       escrow.status = "on_hold";
       await escrow.save();
@@ -566,19 +578,18 @@ const confirmPurchaseHandover = async (req, res) => {
       await Notification.create({
         user: sellerId,
         title: "Handover Confirmed by Buyer",
-        message: `The buyer has accepted and confirmed the handover schedule for "${purchase.property?.title}".`,
+        message: `Buyer has confirmed the handover schedule for "${purchase.property?.title}".`,
         meta: { purchaseId },
       });
     }
 
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "handover_confirmed",
-        title: "Handover Confirmed",
-        message: `Handover confirmed by buyer for "${purchase.property?.title}".`,
-        purchaseId,
-      });
-    }
+    notifyBoth(purchase.buyer, sellerId, "notification", {
+      type: "handover_confirmed",
+      title: "Handover Confirmed",
+      message: `Handover confirmed by buyer.`,
+      purchaseId,
+      status: purchase.status,
+    });
 
     res.json({
       success: true,
@@ -592,7 +603,7 @@ const confirmPurchaseHandover = async (req, res) => {
 };
 
 // ---------------------------
-// 7️⃣ Mark Handover Completed (User / Buyer)
+// 9️⃣ Mark Handover Completed (User / Buyer)
 // ---------------------------
 const completePurchaseHandover = async (req, res) => {
   try {
@@ -613,8 +624,7 @@ const completePurchaseHandover = async (req, res) => {
     if (purchase.status !== "handover_confirmed") {
       return res.status(400).json({
         success: false,
-        message:
-          "Handover must be confirmed first before it can be marked as completed.",
+        message: "Handover must be confirmed before completion.",
       });
     }
 
@@ -622,14 +632,14 @@ const completePurchaseHandover = async (req, res) => {
     purchase.completedAt = new Date();
     await purchase.save();
 
+    const sellerId = purchase.owner?._id || purchase.owner;
     const adminUser = await User.findOne({ role: "admin" });
 
-    const sellerId = purchase.owner?._id || purchase.owner;
     if (sellerId) {
       await Notification.create({
         user: sellerId,
         title: "Handover Completed",
-        message: `The property handover for "${purchase.property?.title}" has been marked as completed by the buyer.`,
+        message: `Handover for "${purchase.property?.title}" marked as completed by buyer.`,
         meta: { purchaseId },
       });
     }
@@ -638,19 +648,25 @@ const completePurchaseHandover = async (req, res) => {
       await Notification.create({
         user: adminUser._id,
         title: "Handover Completed - Review Escrow",
-        message: `Handover for "${purchase.property?.title}" is completed. Escrow funds can now be released.`,
+        message: `Handover completed. Escrow can now be processed for release by admin.`,
         meta: { purchaseId },
       });
-    }
-
-    if (global.io) {
-      global.io.emit("notification", {
+      notifyUser(adminUser._id, "notification", {
         type: "handover_completed",
         title: "Handover Completed",
         message: `Handover completed for "${purchase.property?.title}".`,
         purchaseId,
+        status: purchase.status,
       });
     }
+
+    notifyBoth(purchase.buyer, sellerId, "notification", {
+      type: "handover_completed",
+      title: "Handover Completed",
+      message: `Handover marked as completed.`,
+      purchaseId,
+      status: purchase.status,
+    });
 
     res.json({
       success: true,
@@ -671,8 +687,15 @@ const changePurchaseStatus = async (req, res) => {
     const { purchaseId } = req.params;
     const { status } = req.body;
 
+    if (!req.user || req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ success: false, message: "Admin access required." });
+    }
+
     const allowedStatuses = [
       "none",
+      "property_payment_review",
       "property_payment_made",
       "handover_requested",
       "handover_scheduled",
@@ -684,10 +707,9 @@ const changePurchaseStatus = async (req, res) => {
     ];
 
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status provided.",
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status provided." });
     }
 
     const purchase = await Purchase.findById(purchaseId).populate("owner");
@@ -712,9 +734,7 @@ const changePurchaseStatus = async (req, res) => {
       purchase.completedAt = new Date();
     }
 
-    const escrow = await Escrow.findOne({
-      purchase: purchase._id,
-    });
+    const escrow = await Escrow.findOne({ purchase: purchase._id });
 
     if (status === "funds_released") {
       purchase.feeReleased = true;
@@ -758,15 +778,13 @@ const changePurchaseStatus = async (req, res) => {
       });
     }
 
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "purchase_status_changed",
-        title: "Purchase Status Updated",
-        message: notificationMessage,
-        purchaseId,
-        status,
-      });
-    }
+    notifyBoth(purchase.buyer, sellerId, "notification", {
+      type: "purchase_status_changed",
+      title: "Purchase Status Updated",
+      message: notificationMessage,
+      purchaseId,
+      status,
+    });
 
     res.json({
       success: true,
@@ -780,7 +798,7 @@ const changePurchaseStatus = async (req, res) => {
 };
 
 // ---------------------------
-// 4️⃣ Get Purchase Details
+// 🔟 Get Purchase Details
 // ---------------------------
 const getPurchaseDetails = async (req, res) => {
   try {
@@ -805,6 +823,7 @@ const getPurchaseDetails = async (req, res) => {
   }
 };
 
+// getUserPurchases remains UNFILTERED so unpaid requests can be resumed
 const getUserPurchases = async (req, res) => {
   try {
     const userId = req.params.id || req.user._id;
@@ -825,6 +844,7 @@ const getUserPurchases = async (req, res) => {
   }
 };
 
+// Hides draft/unpaid statuses from agent list
 const getAgentPurchases = async (req, res) => {
   try {
     const agentId = req.params.id || req.user._id;
@@ -835,7 +855,10 @@ const getAgentPurchases = async (req, res) => {
     );
     const propertyIds = properties.map((p) => p._id);
 
-    const purchases = await Purchase.find({ property: { $in: propertyIds } })
+    const purchases = await Purchase.find({
+      property: { $in: propertyIds },
+      status: { $nin: ["none", "property_payment_review"] },
+    })
       .populate(
         "property",
         "title price escrowFee serviceCharge address images",
@@ -856,9 +879,12 @@ const getAgentPurchases = async (req, res) => {
   }
 };
 
+// Hides draft/unpaid statuses from admin list
 const getAllPurchases = async (req, res) => {
   try {
-    const purchases = await Purchase.find()
+    const purchases = await Purchase.find({
+      status: { $nin: ["none", "property_payment_review"] },
+    })
       .populate(
         "property",
         "title price escrowFee serviceCharge address images",
@@ -881,6 +907,7 @@ const getAllPurchases = async (req, res) => {
 module.exports = {
   requestPurchase,
   initializePurchasePayment,
+  confirmPurchasePaymentCallback,
   verifyPurchasePayment,
   schedulePurchaseHandover,
   reschedulePurchaseHandover,

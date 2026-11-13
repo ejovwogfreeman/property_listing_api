@@ -29,21 +29,6 @@ const TransactionSchema = new Schema(
       unique: true,
     },
 
-    // 🧾 Only two allowed types
-    // type: {
-    //   type: String,
-    //   enum: ["wallet_funding", "agent_payment", "withdrawal"],
-    //   required: true,
-    // },
-
-    // // 📊 Payment status
-    // status: {
-    //   type: String,
-    //   enum: ["pending", "approved", "declined", "failed"],
-    //   default: "pending",
-    // },
-
-    // In models/transaction.js
     type: {
       type: String,
       enum: [

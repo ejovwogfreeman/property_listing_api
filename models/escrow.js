@@ -14,6 +14,7 @@ const EscrowSchema = new Schema(
     },
     amount: Number,
     platformFee: { type: Number, default: 0 },
+    netPayout: { type: Number, default: 0 }, // 🛡️ Added so purchase net payout isn't silently dropped
     status: {
       type: String,
       enum: ["on_hold", "released", "refunded"],
@@ -26,7 +27,7 @@ const EscrowSchema = new Schema(
     releasedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     reason: { type: String, default: null },
   },
-  { timestamps: true }, // Automatically manages createdAt and updatedAt
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("Escrow", EscrowSchema);
