@@ -94,12 +94,8 @@ connectDB();
 // ------------------------
 // Test routes
 // ------------------------
-app.get("/", (req, res) =>
-  res.send("RealEstate Server is running 🚀[cite: 10]"),
-);
-app.get("/api", (req, res) =>
-  res.send("RealEstate API is running 🚀[cite: 10]"),
-);
+app.get("/", (req, res) => res.send("RealEstate Server is running 🚀"));
+app.get("/api", (req, res) => res.send("RealEstate API is running 🚀"));
 
 // ------------------------
 // Mount API routes
@@ -125,6 +121,4 @@ app.use("/api/feedback", feedbackRoutes);
 // Start server
 // ------------------------
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}[cite: 10]`),
-);
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

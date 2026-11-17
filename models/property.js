@@ -164,21 +164,50 @@ const propertySchema = new mongoose.Schema(
 
 // --- PRE-SAVE HOOK: Auto-generate Code & Track Status History ---
 propertySchema.pre("save", async function (next) {
-  // Generate human-readable code if it doesn't exist (Bug 12)
   if (!this.code) {
-    const count = await mongoose.model("Property").countDocuments();
-    this.code = `PROP-${String(count + 1).padStart(4, "0")}`;
-  }
+    let isUnique = false;
+    let attempts = 0;
 
-  // If status is modified or it's a new document, push to status history (Bug 10)
-  if (this.isNew || this.isModified("status")) {
-    this.statusHistory.push({
-      status: this.status,
-      at: new Date(),
-      by: this.owner._id, // defaults to owner on creation, or can be overwritten in controllers during admin actions
-    });
-  }
+    while (!isUnique && attempts < 5) {
+      attempts++;
+      try {
+        // Find the property with the highest code matching PROP-XXXX format
+        const lastProperty = await mongoose
+          .model("Property")
+          .findOne({ code: /^PROP-\d+$/ })
+          .sort({ createdAt: -1 });
 
+        let nextNumber = 1;
+        if (lastProperty && lastProperty.code) {
+          const parts = lastProperty.code.split("-");
+          const parsed = parseInt(parts[1], 10);
+          if (!isNaN(parsed)) {
+            nextNumber = parsed + 1;
+          }
+        }
+
+        const candidateCode = `PROP-${String(nextNumber).padStart(4, "0")}`;
+
+        // Check if it genuinely exists (handles legacy records without codes)
+        const existing = await mongoose
+          .model("Property")
+          .findOne({ code: candidateCode });
+        if (!existing) {
+          this.code = candidateCode;
+          isUnique = true;
+        } else {
+          // If collision happened due to concurrent requests, increment further or fallback to random suffix
+          nextNumber += attempts;
+        }
+      } catch (err) {
+        if (attempts >= 5) {
+          // Fallback to random unique code if sequence gets stuck
+          this.code = `PROP-${Math.floor(1000 + Math.random() * 9000)}`;
+          isUnique = true;
+        }
+      }
+    }
+  }
   next();
 });
 
