@@ -4,6 +4,7 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
 const connectDB = require("./config/db");
 const multer = require("multer");
 
@@ -33,15 +34,57 @@ const app = express();
 const server = http.createServer(app);
 
 // ------------------------
-// Middleware
+// Socket.IO setup with JWT Handshake Authentication
+// ------------------------
+const io = new Server(server, { cors: { origin: "*" } });
+
+global.io = io;
+global.onlineUsers = new Map();
+
+io.use((socket, next) => {
+  try {
+    const token =
+      socket.handshake.auth?.token || socket.handshake.headers?.token;
+    if (!token) {
+      return next(new Error("Authentication error: Token missing"));
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = decoded; // Attach user info to socket
+    next();
+  } catch (err) {
+    next(new Error("Authentication error: Invalid token"));
+  }
+});
+
+io.on("connection", (socket) => {
+  const userId = socket.user?._id || socket.user?.id;
+  if (userId) {
+    socket.join(userId.toString());
+  }
+});
+
+// Initialize additional socket logic handler
+socketHandler(io, global.onlineUsers);
+
+// ------------------------
+// Middleware & Raw Body Parser for Paystack Webhooks
 // ------------------------
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
 
-// Multer setup for form-data (files + text)
-const upload = multer();
-// app.use(upload.none()); // Use in routes as needed
+app.use(
+  express.json({
+    limit: "10mb",
+    verify: (req, res, buf) => {
+      // Capture raw body for Paystack webhook signature verification
+      if (req.originalUrl && req.originalUrl.includes("/webhook")) {
+        req.rawBody = buf.toString();
+      }
+    },
+  }),
+);
+
+app.use(express.urlencoded({ extended: true }));
 
 // ------------------------
 // Connect MongoDB
@@ -51,8 +94,12 @@ connectDB();
 // ------------------------
 // Test routes
 // ------------------------
-app.get("/", (req, res) => res.send("RealEstate Server is running 🚀"));
-app.get("/api", (req, res) => res.send("RealEstate API is running 🚀"));
+app.get("/", (req, res) =>
+  res.send("RealEstate Server is running 🚀[cite: 10]"),
+);
+app.get("/api", (req, res) =>
+  res.send("RealEstate API is running 🚀[cite: 10]"),
+);
 
 // ------------------------
 // Mount API routes
@@ -75,19 +122,9 @@ app.use("/api/escrow", escrowRoutes);
 app.use("/api/feedback", feedbackRoutes);
 
 // ------------------------
-// Socket.IO setup
-// ------------------------
-const io = new Server(server, { cors: { origin: "*" } });
-
-// Global references for controllers
-global.io = io;
-global.onlineUsers = new Map();
-
-// Initialize socket logic
-socketHandler(io, global.onlineUsers);
-
-// ------------------------
 // Start server
 // ------------------------
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT}[cite: 10]`),
+);

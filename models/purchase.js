@@ -9,22 +9,38 @@ const PurchaseSchema = new Schema(
     inspection: {
       type: Schema.Types.ObjectId,
       ref: "Inspection",
-      required: true,
+      required: false, // Optional if purchased directly or linked later
     },
     price: { type: Number, required: true },
 
-    // --- ITEM 18: Platform Fee Recorded per Purchase ---
+    // --- Platform Fee Recorded per Purchase ---
     platformFee: { type: Number, default: 0 },
-    // ---------------------------------------------------
+    // ------------------------------------------
 
     // 🔑 Paystack reference
     reference: {
       type: String,
       unique: true,
+      sparse: true,
     },
     feePaid: { type: Boolean, default: false }, // buyer has paid
     feeReleased: { type: Boolean, default: false }, // payment released to owner
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin holding payment
+
+    // --- Property Lock & Audit Fields ---
+    holdsProperty: { type: Boolean, default: false },
+
+    refundDue: { type: Boolean, default: false },
+    refundAmount: { type: Number, default: 0 },
+    refundSentAt: { type: Date },
+    refundSentAmount: { type: Number },
+    refundReference: { type: String },
+    refundNote: { type: String },
+
+    amountMismatch: { type: Boolean, default: false },
+    paidAmount: { type: Number },
+    // ------------------------------------
+
     status: {
       type: String,
       enum: [
@@ -50,6 +66,12 @@ const PurchaseSchema = new Schema(
     completedAt: { type: Date },
   },
   { timestamps: true },
+);
+
+// Partial unique index to lock property against competing buyers when holdsProperty is true
+PurchaseSchema.index(
+  { property: 1 },
+  { unique: true, partialFilterExpression: { holdsProperty: true } },
 );
 
 module.exports = mongoose.model("Purchase", PurchaseSchema);

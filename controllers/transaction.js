@@ -10,8 +10,19 @@ const {
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
 
+// Helper for targeted socket notifications with error isolation
+const notifyUser = (userId, event, data) => {
+  try {
+    if (global.io && userId) {
+      global.io.to(userId.toString()).emit(event, data);
+    }
+  } catch (err) {
+    console.error("Socket notification error:", err);
+  }
+};
+
 // ---------------------------
-// Wallet Funding
+// 1️⃣ Wallet Funding: Initializes Paystack WITHOUT creating a premature Transaction
 // ---------------------------
 const walletFunding = async (req, res) => {
   try {
@@ -19,53 +30,36 @@ const walletFunding = async (req, res) => {
     const userId = req.user._id;
 
     if (!amount || amount <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid amount" });
     }
 
-    // 🔑 Generate unique reference
     const reference = crypto.randomBytes(16).toString("hex");
+    const amountInKobo = Math.round(amount * 100);
 
-    // 🧾 Create pending transaction
-    const transaction = await Transaction.create({
-      from: userId, // user is paying
-      to: userId, // wallet funding goes back to same user
-      amount,
-      type: "wallet_funding",
-      status: "pending",
-      reference,
-    });
-
-    // 🔔 Notify user
-    await Notification.create({
-      user: userId,
-      title: "Wallet Funding Started",
-      message: `You initiated a wallet funding of ₦${amount}.`,
-      meta: { transactionId: transaction._id },
-    });
-
-    // 🔌 Socket event
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "wallet_funding_started",
-        title: "Wallet Funding",
-        message: `A user started wallet funding.`,
-        transactionId: transaction._id,
-      });
-    }
-
-    // 💳 Initialize Paystack
+    // Initialize Paystack with metadata for webhook/callback tracking
     const init = await initializeTransaction(
       req.user.email,
-      amount * 100,
+      amountInKobo,
       reference,
       callback_url,
+      { userId: userId.toString(), purpose: "wallet_funding" },
     );
+
+    if (!init || !init.success || !init.data?.authorization_url) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Failed to initialize Paystack transaction.",
+        });
+    }
 
     return res.json({
       success: true,
       authorizationUrl: init.data.authorization_url,
       reference,
-      transactionId: transaction._id,
       callback_url,
     });
   } catch (err) {
@@ -75,7 +69,105 @@ const walletFunding = async (req, res) => {
 };
 
 // ---------------------------
-// Verify Wallet Funding
+// 1️⃣.1 Confirm Wallet Funding (User callback / Webhook helper)
+// ---------------------------
+const confirmFundWallet = async (req, res) => {
+  try {
+    const { reference } = req.body;
+    const userId = req.user._id;
+
+    if (!reference) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Reference is required" });
+    }
+
+    const verification = await verifyTransaction(reference);
+    if (!verification || verification.data.status !== "success") {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Payment not successful or verification failed",
+        });
+    }
+
+    // Check metadata ownership
+    const metaUserId = verification.data.metadata?.userId;
+    if (
+      metaUserId &&
+      metaUserId !== userId.toString() &&
+      req.user.role !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Unauthorized transaction owner" });
+    }
+
+    const targetUserId = metaUserId || userId;
+    const paidAmount = verification.data.amount / 100;
+
+    // Idempotency: check if transaction already exists
+    let transaction = await Transaction.findOne({ reference });
+    if (transaction) {
+      return res.json({
+        success: true,
+        status: transaction.status,
+        message: "Transaction already recorded.",
+        transaction,
+      });
+    }
+
+    // Create pending transaction awaiting admin approval
+    try {
+      transaction = await Transaction.create({
+        from: targetUserId,
+        to: targetUserId,
+        amount: paidAmount,
+        type: "wallet_funding",
+        status: "pending",
+        reference,
+      });
+    } catch (createErr) {
+      if (createErr.code === 11000) {
+        transaction = await Transaction.findOne({ reference });
+        return res.json({
+          success: true,
+          status: transaction.status,
+          transaction,
+        });
+      }
+      throw createErr;
+    }
+
+    await Notification.create({
+      user: targetUserId,
+      title: "Wallet Funding Payment Received",
+      message: `Your payment of ₦${paidAmount} was received and is pending admin approval.`,
+      meta: { transactionId: transaction._id },
+    });
+
+    notifyUser(targetUserId, "notification", {
+      type: "wallet_funding_pending",
+      title: "Wallet Funding Pending Review",
+      message: `Your wallet funding payment is awaiting admin approval.`,
+      transactionId: transaction._id,
+    });
+
+    return res.json({
+      success: true,
+      status: "pending",
+      message: "Payment verified and submitted for admin approval.",
+      transaction,
+    });
+  } catch (err) {
+    console.error("confirmFundWallet error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 2️⃣ Verify Wallet Funding (Admin Approval - Atomic & Idempotent)
 // ---------------------------
 const verifyWalletFunding = async (req, res) => {
   try {
@@ -85,67 +177,74 @@ const verifyWalletFunding = async (req, res) => {
       return res.status(400).json({ message: "Reference is required" });
     }
 
-    // 🔍 Verify with Paystack
-    const verification = await verifyTransaction(reference);
-
-    if (verification.data.status !== "success") {
-      return res.status(400).json({ message: "Payment not successful" });
-    }
-
-    // 🧾 Find transaction
     const transaction = await Transaction.findOne({ reference });
-
     if (!transaction) {
       return res.status(404).json({ message: "Transaction not found" });
     }
 
-    // 🔒 Ensure correct type
     if (transaction.type !== "wallet_funding") {
-      return res.status(400).json({
-        message: "Invalid transaction type",
+      return res.status(400).json({ message: "Invalid transaction type" });
+    }
+
+    // Idempotency: already approved returns 200 gracefully
+    if (
+      transaction.status === "approved" ||
+      transaction.status === "completed"
+    ) {
+      const user = await User.findById(transaction.to);
+      return res.status(200).json({
+        success: true,
+        message: "Transaction already approved and credited.",
+        balance: user?.balance,
+        transaction,
       });
     }
 
-    // 🚫 Prevent double processing
-    if (transaction.status === "approved") {
-      return res.status(400).json({
-        message: "Transaction already verified",
-      });
+    const verification = await verifyTransaction(reference);
+    if (!verification || verification.data.status !== "success") {
+      return res
+        .status(400)
+        .json({ message: "Paystack payment verification failed." });
     }
 
-    // 👤 Find user (from field is now correct source of truth)
-    const user = await User.findById(transaction.from);
+    const expectedAmountInKobo = Math.round(transaction.amount * 100);
+    if (verification.data.amount !== expectedAmountInKobo) {
+      return res
+        .status(400)
+        .json({
+          message: "Amount mismatch between transaction and Paystack record.",
+        });
+    }
+
+    // Atomic credit with $inc to prevent double-crediting
+    const user = await User.findByIdAndUpdate(
+      transaction.to,
+      { $inc: { balance: transaction.amount } },
+      { new: true },
+    );
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 💰 Credit wallet
-    user.balance += transaction.amount;
-    await user.save();
-
-    // 📊 Update transaction
     transaction.status = "approved";
     transaction.approvedAt = new Date();
     await transaction.save();
 
-    // 🔔 Notify user
     await Notification.create({
       user: user._id,
       title: "Wallet Funded",
-      message: `₦${transaction.amount} has been added to your wallet successfully.`,
+      message: `₦${transaction.amount} has been added to your wallet successfully by admin.`,
       meta: { transactionId: transaction._id },
     });
 
-    // 🔌 Socket event
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "wallet_funded",
-        title: "Wallet Credited",
-        message: `A wallet has been credited successfully.`,
-        transactionId: transaction._id,
-      });
-    }
+    notifyUser(user._id, "notification", {
+      type: "wallet_funded",
+      title: "Wallet Credited",
+      message: `₦${transaction.amount} has been credited to your wallet.`,
+      balance: user.balance,
+      transactionId: transaction._id,
+    });
 
     return res.json({
       success: true,
@@ -155,10 +254,7 @@ const verifyWalletFunding = async (req, res) => {
     });
   } catch (err) {
     console.error("verifyWalletFunding error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -168,37 +264,34 @@ const payAgent = async (req, res) => {
     const adminId = req.user._id;
 
     if (!agentId || !amount || amount <= 0) {
-      return res.status(400).json({
-        message: "Agent and valid amount are required",
-      });
+      return res
+        .status(400)
+        .json({ message: "Agent and valid amount are required" });
     }
 
-    // 👤 Find agent
-    const agent = await User.findById(agentId);
+    // Atomic agent balance credit
+    const agent = await User.findByIdAndUpdate(
+      agentId,
+      { $inc: { balance: amount } },
+      { new: true },
+    );
 
     if (!agent) {
       return res.status(404).json({ message: "Agent not found" });
     }
 
-    // 🔑 Generate reference
     const reference = crypto.randomBytes(16).toString("hex");
 
-    // 🧾 Create transaction record
     const transaction = await Transaction.create({
       from: adminId,
       to: agentId,
       amount,
       type: "agent_payment",
-      status: "approved", // internal transfer, no Paystack needed
+      status: "approved",
       reference,
       approvedAt: new Date(),
     });
 
-    // 💰 Credit agent wallet
-    agent.balance += amount;
-    await agent.save();
-
-    // 🔔 Notify agent
     await Notification.create({
       user: agentId,
       title: "You received a payment",
@@ -206,15 +299,13 @@ const payAgent = async (req, res) => {
       meta: { transactionId: transaction._id },
     });
 
-    // 🔌 Socket event
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "agent_payment",
-        title: "Agent Paid",
-        message: `An agent has been paid successfully.`,
-        transactionId: transaction._id,
-      });
-    }
+    notifyUser(agentId, "notification", {
+      type: "agent_payment",
+      title: "Agent Paid",
+      message: `You received ₦${amount} from admin.`,
+      balance: agent.balance,
+      transactionId: transaction._id,
+    });
 
     return res.json({
       success: true,
@@ -224,78 +315,75 @@ const payAgent = async (req, res) => {
     });
   } catch (err) {
     console.error("payAgent error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
+// ---------------------------
+// 3️⃣ Change Transaction Status (Safely handles withdrawal refunds once)
+// ---------------------------
 const changeTransactionStatus = async (req, res) => {
   try {
     const { transactionId, status } = req.body;
 
     const transaction = await Transaction.findById(transactionId);
-
     if (!transaction) {
       return res.status(404).json({ message: "Transaction not found" });
     }
 
-    if (!["pending", "approved", "failed"].includes(status)) {
+    if (!["pending", "approved", "declined", "failed"].includes(status)) {
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    const user = await User.findById(transaction.to || transaction.from);
+    const previousStatus = transaction.status;
+    const targetUserId = transaction.to || transaction.from;
+    const user = await User.findById(targetUserId);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const previousStatus = transaction.status;
-
-    // ===============================
-    // 🔁 APPROVED → PENDING / FAILED (REVERSE MONEY)
-    // ===============================
-    if (
-      previousStatus === "approved" &&
-      (status === "pending" || status === "failed")
-    ) {
-      if (transaction.type === "wallet_funding") {
-        user.balance -= transaction.amount;
+    // Withdrawal: Deducted at request time. If moving to failed/declined from pending, return money ONCE.
+    if (transaction.type === "withdrawal") {
+      if (
+        previousStatus === "pending" &&
+        (status === "failed" || status === "declined")
+      ) {
+        user.balance += transaction.amount;
+        await user.save();
+      } else if (
+        previousStatus === "approved" &&
+        (status === "failed" || status === "declined")
+      ) {
+        // If it was already approved and is now marked failed, refund balance back
+        user.balance += transaction.amount;
+        await user.save();
       }
-
-      if (transaction.type === "agent_payment") {
+    } else {
+      // Wallet funding / agent payment reversals
+      if (
+        previousStatus === "approved" &&
+        (status === "pending" || status === "failed" || status === "declined")
+      ) {
         user.balance -= transaction.amount;
+        await user.save();
+      } else if (previousStatus === "pending" && status === "approved") {
+        user.balance += transaction.amount;
+        transaction.approvedAt = new Date();
+        await user.save();
       }
-
-      if (transaction.type === "withdrawal") {
-        user.balance -= transaction.amount;
-      }
-
-      await user.save();
     }
 
-    // ===============================
-    // ➕ PENDING → APPROVED (APPLY MONEY)
-    // ===============================
-    if (previousStatus === "pending" && status === "approved") {
-      if (transaction.type === "wallet_funding") {
-        user.balance += transaction.amount;
-      }
-
-      if (transaction.type === "agent_payment") {
-        user.balance += transaction.amount;
-      }
-
-      await user.save();
-      transaction.approvedAt = new Date();
-    }
-
-    // ===============================
-    // UPDATE TRANSACTION STATUS
-    // ===============================
     transaction.status = status;
     await transaction.save();
+
+    notifyUser(user._id, "notification", {
+      type: "transaction_status_changed",
+      title: "Transaction Status Updated",
+      message: `Your ${transaction.type} status has been updated to ${status}.`,
+      transactionId: transaction._id,
+      status,
+    });
 
     return res.json({
       success: true,
@@ -305,609 +393,9 @@ const changeTransactionStatus = async (req, res) => {
     });
   } catch (err) {
     console.error("changeTransactionStatus error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
-
-// const getUserTransactions = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     const transactions = await Transaction.find({
-//       $or: [{ from: userId }, { to: userId }],
-//     })
-//       .populate("from", "name email phoneNumber profilePicture")
-//       .populate("to", "name email phoneNumber profilePicture")
-//       .sort({ createdAt: -1 });
-
-//     return res.json({
-//       success: true,
-//       count: transactions.length,
-//       transactions,
-//     });
-//   } catch (err) {
-//     console.error("getUserTransactions error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getUserTransactions = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     // Fetch all related records in parallel using .lean() for performance
-//     const [transactions, inspections, purchases, escrows] = await Promise.all([
-//       Transaction.find({
-//         $or: [{ from: userId }, { to: userId }],
-//       })
-//         .populate("from", "name email phoneNumber profilePicture")
-//         .populate("to", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Inspection.find({ user: userId })
-//         .populate("property", "title price address")
-//         .populate("user", "name email phoneNumber profilePicture")
-//         .populate("owner", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Purchase.find({ buyer: userId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Escrow.find({ buyer: userId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag each item with a recordType
-//     const taggedTransactions = transactions.map((item) => ({
-//       ...item,
-//       recordType: "transaction",
-//     }));
-//     const taggedInspections = inspections.map((item) => ({
-//       ...item,
-//       recordType: "inspection",
-//     }));
-//     const taggedPurchases = purchases.map((item) => ({
-//       ...item,
-//       recordType: "purchase",
-//     }));
-//     const taggedEscrows = escrows.map((item) => ({
-//       ...item,
-//       recordType: "escrow",
-//     }));
-
-//     // Combine all arrays into one single list
-//     const allActivities = [
-//       ...taggedTransactions,
-//       ...taggedInspections,
-//       ...taggedPurchases,
-//       ...taggedEscrows,
-//     ];
-
-//     // Sort everything globally by createdAt descending (newest first)
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getUserTransactions error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAgentTransactions = async (req, res) => {
-//   try {
-//     const agentId = req.params.agentId || req.user._id;
-
-//     const transactions = await Transaction.find({
-//       to: agentId,
-//       type: "agent_payment",
-//     })
-//       .populate("from", "name email phoneNumber profilePicture")
-//       .populate("to", "name email phoneNumber profilePicture")
-//       .sort({ createdAt: -1 });
-
-//     return res.json({
-//       success: true,
-//       count: transactions.length,
-//       totalEarned: transactions.reduce((sum, t) => sum + t.amount, 0),
-//       transactions,
-//     });
-//   } catch (err) {
-//     console.error("getAgentTransactions error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAgentTransactions = async (req, res) => {
-//   try {
-//     const agentId = req.params.agentId || req.user._id;
-
-//     // Fetch all related records in parallel using .lean() for performance
-//     const [transactions, inspections, purchases, escrows] = await Promise.all([
-//       Transaction.find({
-//         $or: [{ to: agentId }, { from: agentId }],
-//       })
-//         .populate("from", "name email phoneNumber profilePicture")
-//         .populate("to", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Inspection.find({ owner: agentId })
-//         .populate("property", "title price address")
-//         .populate("user", "name email phoneNumber profilePicture")
-//         .populate("owner", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Purchase.find({ seller: agentId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Escrow.find({ seller: agentId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag each item with a recordType
-//     const taggedTransactions = transactions.map((item) => ({
-//       ...item,
-//       recordType: "transaction",
-//     }));
-//     const taggedInspections = inspections.map((item) => ({
-//       ...item,
-//       recordType: "inspection",
-//     }));
-//     const taggedPurchases = purchases.map((item) => ({
-//       ...item,
-//       recordType: "purchase",
-//     }));
-//     const taggedEscrows = escrows.map((item) => ({
-//       ...item,
-//       recordType: "escrow",
-//     }));
-
-//     // Combine all arrays into one single list
-//     const allActivities = [
-//       ...taggedTransactions,
-//       ...taggedInspections,
-//       ...taggedPurchases,
-//       ...taggedEscrows,
-//     ];
-
-//     // Sort everything globally by createdAt descending (newest first)
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     // Calculate total earned from agent payment transactions (or adjust logic as needed)
-//     const agentPayments = transactions.filter(
-//       (t) =>
-//         t.to?.toString() === agentId.toString() && t.type === "agent_payment",
-//     );
-//     const totalEarned = agentPayments.reduce(
-//       (sum, t) => sum + (t.amount || 0),
-//       0,
-//     );
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       totalEarned,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getAgentTransactions error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAllTransactions = async (req, res) => {
-//   try {
-//     const transactions = await Transaction.find()
-//       .populate("from", "name email phoneNumber profilePicture")
-//       .populate("to", "name email phoneNumber profilePicture")
-//       .sort({ createdAt: -1 });
-
-//     return res.json({
-//       success: true,
-//       count: transactions.length,
-//       transactions,
-//     });
-//   } catch (err) {
-//     console.error("getAllTransactions error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// 📊 Get All Platform Activities (Mixed & Sorted)
-// ---------------------------
-// const getAllTransactions = async (req, res) => {
-//   try {
-//     // Fetch all records in parallel using .lean() for performance
-//     const [transactions, inspections, purchases, escrows] = await Promise.all([
-//       Transaction.find()
-//         .populate("from", "name email phoneNumber profilePicture")
-//         .populate("to", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Inspection.find()
-//         .populate("property", "title price address")
-//         .populate("user", "name email phoneNumber profilePicture")
-//         .populate("owner", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Purchase.find()
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Escrow.find()
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag each item with a recordType for frontend differentiation
-//     const taggedTransactions = transactions.map((item) => ({
-//       ...item,
-//       recordType: "transaction",
-//     }));
-//     const taggedInspections = inspections.map((item) => ({
-//       ...item,
-//       recordType: "inspection",
-//     }));
-//     const taggedPurchases = purchases.map((item) => ({
-//       ...item,
-//       recordType: "purchase",
-//     }));
-//     const taggedEscrows = escrows.map((item) => ({
-//       ...item,
-//       recordType: "escrow",
-//     }));
-
-//     // Combine all arrays into one single list
-//     const allActivities = [
-//       ...taggedTransactions,
-//       ...taggedInspections,
-//       ...taggedPurchases,
-//       ...taggedEscrows,
-//     ];
-
-//     // Sort everything globally by createdAt descending (newest first)
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getAllTransactions error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getUserTransactionsAndEscrows = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     // Fetch transactions and escrows in parallel
-//     const [transactions, escrows] = await Promise.all([
-//       Transaction.find({
-//         $or: [{ from: userId }, { to: userId }],
-//       })
-//         .populate("from", "name email phoneNumber profilePicture")
-//         .populate("to", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Escrow.find({ buyer: userId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag records
-//     const taggedTransactions = transactions.map((item) => ({
-//       ...item,
-//       recordType: "transaction",
-//     }));
-//     const taggedEscrows = escrows.map((item) => ({
-//       ...item,
-//       recordType: "escrow",
-//     }));
-
-//     // Combine and sort by newest first
-//     const allActivities = [...taggedTransactions, ...taggedEscrows];
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getUserTransactionsAndEscrows error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getUserPurchasesAndInspections = async (req, res) => {
-//   try {
-//     const userId = req.user._id;
-
-//     // Fetch purchases and inspections in parallel
-//     const [purchases, inspections] = await Promise.all([
-//       Purchase.find({ buyer: userId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Inspection.find({ user: userId })
-//         .populate("property", "title price address")
-//         .populate("user", "name email phoneNumber profilePicture")
-//         .populate("owner", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag records
-//     const taggedPurchases = purchases.map((item) => ({
-//       ...item,
-//       recordType: "purchase",
-//     }));
-//     const taggedInspections = inspections.map((item) => ({
-//       ...item,
-//       recordType: "inspection",
-//     }));
-
-//     // Combine and sort by newest first
-//     const allActivities = [...taggedPurchases, ...taggedInspections];
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getUserPurchasesAndInspections error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAgentTransactionsAndEscrows = async (req, res) => {
-//   try {
-//     const agentId = req.params.agentId || req.user._id;
-
-//     // Fetch transactions and escrows in parallel using .lean()
-//     const [transactions, escrows] = await Promise.all([
-//       Transaction.find({
-//         $or: [{ to: agentId }, { from: agentId }],
-//       })
-//         .populate("from", "name email phoneNumber profilePicture")
-//         .populate("to", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Escrow.find({ seller: agentId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag records
-//     const taggedTransactions = transactions.map((item) => ({
-//       ...item,
-//       recordType: "transaction",
-//     }));
-//     const taggedEscrows = escrows.map((item) => ({
-//       ...item,
-//       recordType: "escrow",
-//     }));
-
-//     // Combine and sort by newest first
-//     const allActivities = [...taggedTransactions, ...taggedEscrows];
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     // Calculate total earned from agent payment transactions
-//     const agentPayments = transactions.filter(
-//       (t) =>
-//         t.to?.toString() === agentId.toString() && t.type === "agent_payment",
-//     );
-//     const totalEarned = agentPayments.reduce(
-//       (sum, t) => sum + (t.amount || 0),
-//       0,
-//     );
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       totalEarned,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getAgentTransactionsAndEscrows error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAgentPurchasesAndInspections = async (req, res) => {
-//   try {
-//     const agentId = req.params.agentId || req.user._id;
-
-//     // Fetch purchases and inspections in parallel using .lean()
-//     const [purchases, inspections] = await Promise.all([
-//       Purchase.find({ seller: agentId })
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Inspection.find({ owner: agentId })
-//         .populate("property", "title price address")
-//         .populate("user", "name email phoneNumber profilePicture")
-//         .populate("owner", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag records
-//     const taggedPurchases = purchases.map((item) => ({
-//       ...item,
-//       recordType: "purchase",
-//     }));
-//     const taggedInspections = inspections.map((item) => ({
-//       ...item,
-//       recordType: "inspection",
-//     }));
-
-//     // Combine and sort by newest first
-//     const allActivities = [...taggedPurchases, ...taggedInspections];
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getAgentPurchasesAndInspections error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAllTransactionsAndEscrows = async (req, res) => {
-//   try {
-//     // Fetch transactions and escrows in parallel using .lean()
-//     const [transactions, escrows] = await Promise.all([
-//       Transaction.find()
-//         .populate("from", "name email phoneNumber profilePicture")
-//         .populate("to", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Escrow.find()
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag records
-//     const taggedTransactions = transactions.map((item) => ({
-//       ...item,
-//       recordType: "transaction",
-//     }));
-//     const taggedEscrows = escrows.map((item) => ({
-//       ...item,
-//       recordType: "escrow",
-//     }));
-
-//     // Combine and sort by newest first
-//     const allActivities = [...taggedTransactions, ...taggedEscrows];
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getAllTransactionsAndEscrows error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
-
-// const getAllPurchasesAndInspections = async (req, res) => {
-//   try {
-//     // Fetch purchases and inspections in parallel using .lean()
-//     const [purchases, inspections] = await Promise.all([
-//       Purchase.find()
-//         .populate("property", "title price address")
-//         .populate("buyer", "name email phoneNumber profilePicture")
-//         .populate("seller", "name email phoneNumber profilePicture")
-//         .lean(),
-
-//       Inspection.find()
-//         .populate("property", "title price address")
-//         .populate("user", "name email phoneNumber profilePicture")
-//         .populate("owner", "name email phoneNumber profilePicture")
-//         .lean(),
-//     ]);
-
-//     // Tag records
-//     const taggedPurchases = purchases.map((item) => ({
-//       ...item,
-//       recordType: "purchase",
-//     }));
-//     const taggedInspections = inspections.map((item) => ({
-//       ...item,
-//       recordType: "inspection",
-//     }));
-
-//     // Combine and sort by newest first
-//     const allActivities = [...taggedPurchases, ...taggedInspections];
-//     allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-//     return res.json({
-//       success: true,
-//       count: allActivities.length,
-//       activities: allActivities,
-//     });
-//   } catch (err) {
-//     console.error("getAllPurchasesAndInspections error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//     });
-//   }
-// };
 
 // Helper function to attach the first property image
 const attachFirstPropertyImage = (item) => {
@@ -962,18 +450,27 @@ const getUserTransactionsAndEscrows = async (req, res) => {
   }
 };
 
+// Hides unpaid/draft inspections (`none`, `inspection_requested`, `inspection_initialized`) and purchases (`none`)
 const getUserPurchasesAndInspections = async (req, res) => {
   try {
     const userId = req.user._id;
 
     const [purchases, inspections] = await Promise.all([
-      Purchase.find({ buyer: userId })
+      Purchase.find({
+        buyer: userId,
+        status: { $nin: ["none"] },
+      })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
         .lean(),
 
-      Inspection.find({ user: userId })
+      Inspection.find({
+        user: userId,
+        status: {
+          $nin: ["none", "inspection_requested", "inspection_initialized"],
+        },
+      })
         .populate("property", "title price address images")
         .populate("user", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
@@ -1060,13 +557,21 @@ const getAgentPurchasesAndInspections = async (req, res) => {
     const agentId = req.params.agentId || req.user._id;
 
     const [purchases, inspections] = await Promise.all([
-      Purchase.find({ owner: agentId })
+      Purchase.find({
+        owner: agentId,
+        status: { $nin: ["none", "property_payment_review"] },
+      })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
         .lean(),
 
-      Inspection.find({ owner: agentId })
+      Inspection.find({
+        owner: agentId,
+        status: {
+          $nin: ["none", "inspection_requested", "inspection_initialized"],
+        },
+      })
         .populate("property", "title price address images")
         .populate("user", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
@@ -1137,13 +642,19 @@ const getAllTransactionsAndEscrows = async (req, res) => {
 const getAllPurchasesAndInspections = async (req, res) => {
   try {
     const [purchases, inspections] = await Promise.all([
-      Purchase.find()
+      Purchase.find({
+        status: { $nin: ["none", "property_payment_review"] },
+      })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
         .lean(),
 
-      Inspection.find()
+      Inspection.find({
+        status: {
+          $nin: ["none", "inspection_requested", "inspection_initialized"],
+        },
+      })
         .populate("property", "title price address images")
         .populate("user", "name email phoneNumber profilePicture")
         .populate("owner", "name email phoneNumber profilePicture")
@@ -1174,11 +685,11 @@ const getAllPurchasesAndInspections = async (req, res) => {
 };
 
 // ---------------------------
-// Request Agent Withdrawal
+// 4️⃣ Request Agent Withdrawal (Saves Bank Details Snapshot)
 // ---------------------------
 const requestWithdrawal = async (req, res) => {
   try {
-    const { amount, bankId } = req.body;
+    const { amount, bankDetails } = req.body;
     const userId = req.user._id;
 
     if (!amount || amount <= 0) {
@@ -1187,14 +698,14 @@ const requestWithdrawal = async (req, res) => {
         .json({ success: false, message: "Invalid withdrawal amount" });
     }
 
-    if (!bankId) {
+    if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankName) {
       return res.status(400).json({
         success: false,
-        message: "Destination bank account is required",
+        message:
+          "Destination bank details (bankName, accountNumber, accountName) are required",
       });
     }
 
-    // 👤 Verify user is an agent
     const user = await User.findById(userId);
     if (!user || user.role !== "agent") {
       return res.status(403).json({
@@ -1203,17 +714,14 @@ const requestWithdrawal = async (req, res) => {
       });
     }
 
-    // 💰 Check if agent has enough balance
     if (user.balance < amount) {
       return res
         .status(400)
         .json({ success: false, message: "Insufficient wallet balance" });
     }
 
-    // 🔑 Generate unique reference
     const reference = crypto.randomBytes(16).toString("hex");
 
-    // 🧾 Create pending withdrawal transaction
     const transaction = await Transaction.create({
       from: userId,
       to: userId,
@@ -1221,30 +729,32 @@ const requestWithdrawal = async (req, res) => {
       type: "withdrawal",
       status: "pending",
       reference,
-      meta: { bankId },
+      bankDetails: {
+        bankName: bankDetails.bankName,
+        bankCode: bankDetails.bankCode || "",
+        accountNumber: bankDetails.accountNumber,
+        accountName: bankDetails.accountName || user.name,
+      },
     });
 
-    // 💸 Deduct from agent wallet immediately
+    // Deduct from agent wallet atomically
     user.balance -= amount;
     await user.save();
 
-    // 🔔 Notify user
     await Notification.create({
       user: userId,
       title: "Withdrawal Requested",
-      message: `Your withdrawal request of ₦${amount} has been submitted and is pending review.`,
+      message: `Your withdrawal request of ₦${amount} has been submitted.`,
       meta: { transactionId: transaction._id },
     });
 
-    // 🔌 Socket event
-    if (global.io) {
-      global.io.emit("notification", {
-        type: "withdrawal_requested",
-        title: "New Withdrawal Request",
-        message: `An agent requested a withdrawal of ₦${amount}.`,
-        transactionId: transaction._id,
-      });
-    }
+    notifyUser(userId, "notification", {
+      type: "withdrawal_requested",
+      title: "New Withdrawal Request",
+      message: `Withdrawal request of ₦${amount} submitted successfully.`,
+      balance: user.balance,
+      transactionId: transaction._id,
+    });
 
     return res.status(201).json({
       success: true,
@@ -1260,6 +770,7 @@ const requestWithdrawal = async (req, res) => {
 
 module.exports = {
   walletFunding,
+  confirmFundWallet,
   verifyWalletFunding,
   payAgent,
   changeTransactionStatus,

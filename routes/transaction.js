@@ -4,6 +4,7 @@ const multer = require("multer");
 const upload = multer(); // Handles multipart/form-data text fields
 const {
   walletFunding,
+  confirmFundWallet,
   verifyWalletFunding,
   payAgent,
   changeTransactionStatus,
@@ -21,10 +22,13 @@ const { protect, authorize } = require("../middlewares/auth");
 // Transaction Routes
 // ---------------------------
 
-// Fund Wallet
+// Fund Wallet Initialization
 router.post("/fund-wallet", protect, upload.none(), walletFunding);
 
-// Verify Fund Wallet
+// Confirm Fund Wallet (User callback / Webhook verification)
+router.post("/confirm-fund-wallet", protect, upload.none(), confirmFundWallet);
+
+// Verify Fund Wallet (Admin Approval)
 router.post(
   "/verify-fund-wallet",
   protect,
@@ -45,14 +49,14 @@ router.post(
   changeTransactionStatus,
 );
 
-// Get User Transactions
+// Get User Transactions Activities
 router.get(
   "/user-transactions-activities",
   protect,
   getUserTransactionsAndEscrows,
 );
 
-// Get Agent Transactions
+// Get Agent Transactions Activities
 router.get(
   "/agent-transactions-activities",
   protect,
@@ -60,7 +64,7 @@ router.get(
   getAgentTransactionsAndEscrows,
 );
 
-// Get All Transactions
+// Get All Transactions Activities
 router.get(
   "/all-transactions-activities",
   protect,
@@ -68,10 +72,10 @@ router.get(
   getAllTransactionsAndEscrows,
 );
 
-// Get User Transactions
+// Get User Purchases & Inspections
 router.get("/user-transactions", protect, getUserPurchasesAndInspections);
 
-// Get Agent Transactions
+// Get Agent Purchases & Inspections
 router.get(
   "/agent-transactions",
   protect,
@@ -79,7 +83,7 @@ router.get(
   getAgentPurchasesAndInspections,
 );
 
-// Get All Transactions
+// Get All Purchases & Inspections
 router.get(
   "/all-transactions",
   protect,
@@ -87,6 +91,7 @@ router.get(
   getAllPurchasesAndInspections,
 );
 
+// Request Withdrawal
 router.post(
   "/withdraw",
   protect,

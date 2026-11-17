@@ -3,8 +3,19 @@ const Chat = require("../models/chat");
 const Message = require("../models/message");
 const Property = require("../models/property");
 
+// Helper for targeted socket notifications with error isolation
+const notifyUser = (userId, event, data) => {
+  try {
+    if (global.io && userId) {
+      global.io.to(userId.toString()).emit(event, data);
+    }
+  } catch (err) {
+    console.error("Socket notification error:", err);
+  }
+};
+
 // ==========================
-// 1. Create or Fetch a 1-on-1 Chat
+// 1. Create or Fetch a 1-on-1 Chat (Using participantsKey)
 // ==========================
 const createOrGetChat = async (req, res) => {
   try {
@@ -40,11 +51,14 @@ const createOrGetChat = async (req, res) => {
       });
     }
 
-    const participants = [userId.toString(), agentId.toString()].sort();
+    // Generate participantsKey string ("idA_idB" sorted)
+    const sortedIds = [userId.toString(), agentId.toString()].sort();
+    const participantsKey = sortedIds.join("_");
+    const participants = sortedIds.map((id) => new mongoose.Types.ObjectId(id));
 
     let chat = await Chat.findOne({
       property: propertyId,
-      participants,
+      participantsKey,
     });
 
     if (!chat && !createIfMissing) {
@@ -68,13 +82,18 @@ const createOrGetChat = async (req, res) => {
       try {
         chat = await Chat.create({
           participants,
+          participantsKey,
           property: propertyId,
         });
       } catch (err) {
-        chat = await Chat.findOne({
-          property: propertyId,
-          participants,
-        });
+        if (err.code === 11000) {
+          chat = await Chat.findOne({
+            property: propertyId,
+            participantsKey,
+          });
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -96,11 +115,7 @@ const createOrGetChat = async (req, res) => {
         "name email avatar",
       );
 
-      if (global.io) {
-        global.io
-          .to(agentId.toString())
-          .emit("receive_message", initialMessage);
-      }
+      notifyUser(agentId, "receive_message", initialMessage);
     }
 
     return res.status(200).json({
@@ -110,6 +125,7 @@ const createOrGetChat = async (req, res) => {
       data: initialMessage,
     });
   } catch (error) {
+    console.error("createOrGetChat error:", error);
     return res.status(500).json({
       message: error.message,
     });

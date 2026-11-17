@@ -5,7 +5,10 @@ const upload = multer(); // Handles multipart/form-data text fields
 const {
   requestPurchase,
   initializePurchasePayment,
+  confirmPurchasePaymentCallback,
   verifyPurchasePayment,
+  rejectPurchasePayment,
+  markPurchaseRefundSent,
   schedulePurchaseHandover,
   reschedulePurchaseHandover,
   confirmPurchaseHandover,
@@ -38,9 +41,21 @@ router.post(
 );
 
 // ---------------------------
-// 3️⃣ Verify Purchase Payment (Admin / System)
-// POST /api/purchases/verify-payment
+// 2.1 Confirm Payment Callback (Buyer)
+// POST /api/purchases/confirm-payment
 // Body: { purchaseId, reference }
+// ---------------------------
+router.post(
+  "/confirm-payment",
+  protect,
+  upload.none(),
+  confirmPurchasePaymentCallback,
+);
+
+// ---------------------------
+// 3️⃣ Verify & Approve Purchase Payment (Admin Only)
+// POST /api/purchases/verify-payment
+// Body: { purchaseId }
 // ---------------------------
 router.post(
   "/verify-payment",
@@ -48,6 +63,32 @@ router.post(
   authorize("admin"),
   upload.none(),
   verifyPurchasePayment,
+);
+
+// ---------------------------
+// 3.1 Reject Purchase Payment (Admin Only)
+// POST /api/purchases/reject-payment
+// Body: { id, reason }
+// ---------------------------
+router.post(
+  "/reject-payment",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  rejectPurchasePayment,
+);
+
+// ---------------------------
+// 3.2 Mark Purchase Refund Sent (Admin Only)
+// POST /api/purchases/mark-refund-sent
+// Body: { id, amountSent, transferReference, note }
+// ---------------------------
+router.post(
+  "/mark-refund-sent",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  markPurchaseRefundSent,
 );
 
 // ---------------------------

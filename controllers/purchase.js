@@ -10,20 +10,24 @@ const {
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
 
-// Helper for targeted socket notifications
+// Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
-  if (global.io && userId) {
-    global.io.to(userId.toString()).emit(event, data);
+  try {
+    if (global.io && userId) {
+      global.io.to(userId.toString()).emit(event, data);
+    }
+  } catch (err) {
+    console.error("Socket notification error:", err);
   }
 };
 
 const notifyBoth = (buyerId, agentId, event, data) => {
   notifyUser(buyerId, event, data);
-  notifyUser(agentId, event, data);
+  if (agentId) notifyUser(agentId, event, data);
 };
 
 // ---------------------------
-// 1️⃣ Request Purchase
+// 1️⃣ Request Purchase (Blocks if property is held by another buyer's review)
 // ---------------------------
 const requestPurchase = async (req, res) => {
   try {
@@ -35,6 +39,21 @@ const requestPurchase = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
+
+    // Check if another buyer's purchase is currently holding this property under review/active payment
+    const activeLock = await Purchase.findOne({
+      property: propertyId,
+      buyer: { $ne: userId },
+      holdsProperty: true,
+    });
+
+    if (activeLock) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This property is currently locked because another buyer's purchase payment is under review.",
+      });
+    }
 
     const inspection = await Inspection.findOne({
       property: propertyId,
@@ -48,13 +67,18 @@ const requestPurchase = async (req, res) => {
         message: "You must complete and pay for inspection first",
       });
 
+    // Ignore cancelled purchases when evaluating existing requests
     const existingPurchase = await Purchase.findOne({
       property: propertyId,
       buyer: userId,
+      status: { $ne: "purchase_cancelled" },
     });
 
     if (existingPurchase) {
-      if (!existingPurchase.feePaid) {
+      if (
+        !existingPurchase.feePaid &&
+        existingPurchase.status !== "property_payment_review"
+      ) {
         return res.status(200).json({
           success: true,
           resumed: true,
@@ -126,20 +150,72 @@ const initializePurchasePayment = async (req, res) => {
     const { purchaseId, callback_url } = req.body;
     const buyerId = req.user._id;
 
-    const purchase = await Purchase.findById(purchaseId).populate("owner");
+    const purchase =
+      await Purchase.findById(purchaseId).populate("owner property");
     if (!purchase)
-      return res.status(404).json({ message: "Purchase not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
 
     if (purchase.buyer.toString() !== buyerId.toString())
-      return res.status(403).json({ message: "Unauthorized" });
+      return res.status(403).json({ success: false, message: "Unauthorized" });
 
-    if (purchase.feePaid)
-      return res.status(400).json({ message: "Purchase already paid" });
+    // Check if another buyer's purchase is currently holding this property
+    const activeLock = await Purchase.findOne({
+      property: purchase.property?._id || purchase.property,
+      buyer: { $ne: buyerId },
+      holdsProperty: true,
+    });
+
+    if (activeLock) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Another buyer's payment is currently under review for this property. Payment is blocked.",
+      });
+    }
+
+    if (
+      purchase.feePaid ||
+      [
+        "property_payment_review",
+        "property_payment_made",
+        "handover_scheduled",
+        "handover_confirmed",
+        "handover_completed",
+        "funds_released",
+      ].includes(purchase.status)
+    )
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Purchase already paid or under review",
+        });
+
+    // If reference exists, check if old payment went through
+    if (purchase.reference) {
+      try {
+        const prevVerification = await verifyTransaction(purchase.reference);
+        if (prevVerification && prevVerification.data.status === "success") {
+          await processPurchasePaymentConfirmation(
+            purchase,
+            purchase.reference,
+          );
+          return res.status(409).json({
+            success: false,
+            message:
+              "Payment was already received for this purchase. Status updated to review.",
+            purchaseId: purchase._id,
+            status: purchase.status,
+          });
+        }
+      } catch (e) {
+        // Ignore and generate new ref
+      }
+    }
 
     const reference = crypto.randomBytes(16).toString("hex");
-    purchase.reference = reference;
-    purchase.initializedAt = new Date();
-    await purchase.save();
 
     const init = await initializeTransaction(
       req.user.email,
@@ -147,6 +223,19 @@ const initializePurchasePayment = async (req, res) => {
       reference,
       callback_url,
     );
+
+    if (!init || !init.success || !init.data?.authorization_url) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Failed to initialize Paystack transaction.",
+        });
+    }
+
+    purchase.reference = reference;
+    purchase.initializedAt = new Date();
+    await purchase.save();
 
     await Notification.create({
       user: buyerId,
@@ -178,39 +267,71 @@ const initializePurchasePayment = async (req, res) => {
 };
 
 // ---------------------------
-// 3️⃣ Shared Payment Confirmation Logic
+// 3️⃣ Shared Payment Confirmation Logic (Idempotent, holds property)
 // ---------------------------
 const processPurchasePaymentConfirmation = async (purchase, reference) => {
-  const verification = await verifyTransaction(reference);
+  let verification;
+  try {
+    verification = await verifyTransaction(reference);
+  } catch (netErr) {
+    console.error(
+      "Paystack network error during purchase verification:",
+      netErr,
+    );
+    return { success: true, status: "processing" };
+  }
+
   if (!verification || verification.data.status !== "success") {
     throw new Error("Payment not successful or verification failed");
   }
 
   const expectedAmountInKobo = Math.round(purchase.price * 100);
-  if (verification.data.amount !== expectedAmountInKobo) {
-    throw new Error(
-      "Amount mismatch detected! Paid amount does not match property price.",
-    );
+  const paidAmount = verification.data.amount;
+  let amountMismatch = false;
+
+  if (paidAmount !== expectedAmountInKobo) {
+    amountMismatch = true;
   }
 
   if (
     purchase.status === "property_payment_review" ||
     purchase.status === "property_payment_made" ||
-    purchase.status === "completed"
+    purchase.status === "handover_completed" ||
+    purchase.status === "funds_released"
   ) {
     return purchase;
   }
 
-  purchase.status = "property_payment_review";
-  purchase.paystackPaidAt = new Date();
-  await purchase.save();
+  // Atomic state update and property hold lock
+  const updated = await Purchase.findOneAndUpdate(
+    {
+      _id: purchase._id,
+      status: "none",
+    },
+    {
+      $set: {
+        status: "property_payment_review",
+        paystackPaidAt: new Date(),
+        holdsProperty: true,
+        amountMismatch,
+        paidAmount: paidAmount / 100,
+      },
+    },
+    { new: true },
+  );
+
+  if (!updated) {
+    return await Purchase.findById(purchase._id);
+  }
 
   const sellerId = purchase.owner?._id || purchase.owner;
 
   await Notification.create({
     user: purchase.buyer,
     title: "Purchase Payment Received",
-    message: `Your purchase payment is confirmed and currently under review by the admin.`,
+    message: amountMismatch
+      ? `Payment received with an amount mismatch. It is currently under admin review.`
+      : `Your purchase payment is confirmed and currently under review by the admin.`,
     meta: { purchaseId: purchase._id },
   });
 
@@ -228,7 +349,9 @@ const processPurchasePaymentConfirmation = async (purchase, reference) => {
     await Notification.create({
       user: admin._id,
       title: "Purchase Payment Review Required",
-      message: `A purchase payment requires your review and approval.`,
+      message: amountMismatch
+        ? `Purchase payment amount mismatch detected!`
+        : `A purchase payment requires your review and approval.`,
       meta: { purchaseId: purchase._id },
     });
     notifyUser(admin._id, "notification", {
@@ -236,7 +359,8 @@ const processPurchasePaymentConfirmation = async (purchase, reference) => {
       title: "Purchase Payment Review",
       message: `Purchase payment waiting for approval.`,
       purchaseId: purchase._id,
-      status: purchase.status,
+      status: updated.status,
+      amountMismatch,
     });
   }
 
@@ -245,10 +369,10 @@ const processPurchasePaymentConfirmation = async (purchase, reference) => {
     title: "Payment Under Review",
     message: `Purchase payment confirmed, awaiting admin approval.`,
     purchaseId: purchase._id,
-    status: purchase.status,
+    status: updated.status,
   });
 
-  return purchase;
+  return updated;
 };
 
 // ---------------------------
@@ -256,7 +380,7 @@ const processPurchasePaymentConfirmation = async (purchase, reference) => {
 // ---------------------------
 const confirmPurchasePaymentCallback = async (req, res) => {
   try {
-    const { purchaseId } = req.body;
+    const { purchaseId, reference } = req.body;
     const userId = req.user._id;
 
     const purchase = await Purchase.findById(purchaseId).populate("property");
@@ -270,7 +394,8 @@ const confirmPurchasePaymentCallback = async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    if (!purchase.reference) {
+    const payRef = reference || purchase.reference;
+    if (!payRef) {
       return res.status(400).json({
         success: false,
         message: "No payment reference found for this purchase.",
@@ -278,11 +403,12 @@ const confirmPurchasePaymentCallback = async (req, res) => {
     }
 
     try {
-      await processPurchasePaymentConfirmation(purchase, purchase.reference);
+      const result = await processPurchasePaymentConfirmation(purchase, payRef);
       return res.json({
         success: true,
+        status: result.status || "property_payment_review",
         message: "Payment successfully confirmed and submitted for review.",
-        purchase,
+        purchase: result,
       });
     } catch (verifyErr) {
       return res.status(400).json({
@@ -310,7 +436,8 @@ const verifyPurchasePayment = async (req, res) => {
         .json({ success: false, message: "Access denied. Admin only." });
     }
 
-    const purchase = await Purchase.findById(purchaseId).populate("owner");
+    const purchase =
+      await Purchase.findById(purchaseId).populate("owner property");
     if (!purchase)
       return res
         .status(404)
@@ -330,6 +457,9 @@ const verifyPurchasePayment = async (req, res) => {
         message: "Paystack verification failed. Payment was not successful.",
       });
 
+    const expectedAmountInKobo = Math.round(purchase.price * 100);
+    const amountMismatch = verification.data.amount !== expectedAmountInKobo;
+
     const platformFee = purchase.platformFee || 0;
     const netPayout = purchase.price - platformFee;
 
@@ -337,9 +467,9 @@ const verifyPurchasePayment = async (req, res) => {
     if (!escrow) {
       escrow = await Escrow.create({
         reference: purchase.reference,
-        property: purchase.property,
+        property: purchase.property?._id || purchase.property,
         buyer: purchase.buyer,
-        seller: purchase.owner._id || purchase.owner,
+        seller: purchase.owner?._id || purchase.owner,
         purchase: purchase._id,
         amount: purchase.price,
         netPayout: netPayout,
@@ -353,6 +483,8 @@ const verifyPurchasePayment = async (req, res) => {
     purchase.escrowHeldBy = adminId;
     purchase.status = "property_payment_made";
     purchase.paidAt = new Date();
+    purchase.amountMismatch = amountMismatch;
+    if (amountMismatch) purchase.paidAmount = verification.data.amount / 100;
     await purchase.save();
 
     const sellerId = purchase.owner?._id || purchase.owner;
@@ -384,12 +516,130 @@ const verifyPurchasePayment = async (req, res) => {
 
     res.json({
       success: true,
+      amountMismatch,
       message: "Payment verified successfully. Escrow created as pending.",
       purchase,
       escrow,
     });
   } catch (err) {
     console.error("verifyPurchasePayment error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 2️⃣.1 Reject Purchase Payment Under Review (Admin Only - New)
+// ---------------------------
+const rejectPurchasePayment = async (req, res) => {
+  try {
+    const { id, reason } = req.body;
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin only." });
+    }
+
+    const purchase = await Purchase.findById(id).populate("property");
+    if (!purchase)
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+
+    if (purchase.status !== "property_payment_review") {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Purchase is not under payment review.",
+        });
+    }
+
+    purchase.status = "purchase_cancelled";
+    purchase.holdsProperty = false; // Release property lock
+    purchase.refundDue = true;
+    purchase.refundAmount = purchase.paidAmount || purchase.price;
+    await purchase.save();
+
+    const sellerId = purchase.owner?._id || purchase.owner;
+
+    await Notification.create({
+      user: purchase.buyer,
+      title: "Purchase Payment Rejected",
+      message: `Your purchase payment was rejected. Reason: ${reason || "Admin review failed"}. Your refund will be sent to your original payment method.`,
+      meta: { purchaseId: purchase._id },
+    });
+
+    notifyBoth(purchase.buyer, sellerId, "notification", {
+      type: "purchase_cancelled",
+      title: "Purchase Payment Rejected",
+      message: `Purchase payment rejected by admin. Property lock released.`,
+      purchaseId: purchase._id,
+      status: purchase.status,
+    });
+
+    res.json({
+      success: true,
+      message:
+        "Purchase payment rejected, property lock released, and refund marked due.",
+      purchase,
+    });
+  } catch (err) {
+    console.error("rejectPurchasePayment error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 2️⃣.2 Mark Purchase Refund Sent (Admin Only - New)
+// ---------------------------
+const markPurchaseRefundSent = async (req, res) => {
+  try {
+    const { id, amountSent, transferReference, note } = req.body;
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin only." });
+    }
+
+    const purchase = await Purchase.findById(id);
+    if (!purchase)
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
+
+    if (!purchase.refundDue) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "No pending refund due for this purchase.",
+        });
+    }
+
+    purchase.refundDue = false;
+    purchase.refundSentAt = new Date();
+    purchase.refundSentAmount = amountSent || purchase.refundAmount;
+    purchase.refundReference = transferReference;
+    purchase.refundNote = note;
+    await purchase.save();
+
+    await Notification.create({
+      user: purchase.buyer,
+      title: "Purchase Refund Sent",
+      message: `Your offline refund of ${purchase.refundSentAmount} has been sent. Reference: ${transferReference || "N/A"}`,
+      meta: { purchaseId: purchase._id },
+    });
+
+    notifyUser(purchase.buyer, "notification", {
+      type: "purchase_refund_sent",
+      title: "Refund Sent",
+      message: `Purchase refund marked as sent by admin.`,
+      purchaseId: purchase._id,
+    });
+
+    res.json({
+      success: true,
+      message: "Purchase refund marked as sent successfully.",
+      purchase,
+    });
+  } catch (err) {
+    console.error("markPurchaseRefundSent error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -739,6 +989,7 @@ const changePurchaseStatus = async (req, res) => {
     if (status === "funds_released") {
       purchase.feeReleased = true;
       purchase.completedAt = purchase.completedAt || new Date();
+      purchase.holdsProperty = false;
 
       if (escrow) {
         escrow.status = "released";
@@ -748,8 +999,10 @@ const changePurchaseStatus = async (req, res) => {
         await escrow.save();
       }
     } else if (status === "purchase_cancelled") {
-      if (escrow) {
-        escrow.status = "refunded";
+      purchase.holdsProperty = false; // Release property lock
+      purchase.refundDue = true;
+      if (escrow && escrow.status !== "released") {
+        escrow.status = "refund_pending";
         escrow.releasedAt = new Date();
         escrow.releasedBy = req.user._id;
         if (req.body.reason) escrow.reason = req.body.reason;
@@ -814,7 +1067,9 @@ const getPurchaseDetails = async (req, res) => {
       .populate("escrowHeldBy", "name email phoneNumber profilePicture");
 
     if (!purchase)
-      return res.status(404).json({ message: "Purchase not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Purchase not found" });
 
     res.json({ success: true, purchase });
   } catch (err) {
@@ -879,7 +1134,7 @@ const getAgentPurchases = async (req, res) => {
   }
 };
 
-// Hides draft/unpaid statuses from admin list
+// Hides draft/unpaid statuses from admin list, includes refundDue
 const getAllPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find({
@@ -909,6 +1164,8 @@ module.exports = {
   initializePurchasePayment,
   confirmPurchasePaymentCallback,
   verifyPurchasePayment,
+  rejectPurchasePayment,
+  markPurchaseRefundSent,
   schedulePurchaseHandover,
   reschedulePurchaseHandover,
   confirmPurchaseHandover,

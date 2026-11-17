@@ -5,7 +5,11 @@ const upload = multer(); // Handles multipart/form-data text fields
 const {
   requestInspection,
   initializeInspectionPayment,
+  confirmInspectionPaymentCallback,
   verifyInspectionPayment,
+  rejectInspectionPayment,
+  markInspectionRefundSent,
+  handlePaystackWebhook,
   scheduleInspection,
   rescheduleInspection,
   confirmInspection,
@@ -17,6 +21,12 @@ const {
   getAllInspections,
 } = require("../controllers/inspection");
 const { protect, authorize } = require("../middlewares/auth");
+
+// ---------------------------
+// 🌍 Public Paystack Webhook Route
+// POST /api/inspections/webhook/paystack
+// ---------------------------
+router.post("/webhook/paystack", handlePaystackWebhook);
 
 // ---------------------------
 // 1️⃣ Request Inspection (Buyer)
@@ -38,9 +48,21 @@ router.post(
 );
 
 // ---------------------------
-// 3️⃣ Verify Inspection Payment (Admin / System)
-// POST /api/inspections/verify-payment
+// 2.1 Confirm Payment Callback (Buyer)
+// POST /api/inspections/confirm-payment
 // Body: { inspectionId, reference }
+// ---------------------------
+router.post(
+  "/confirm-payment",
+  protect,
+  upload.none(),
+  confirmInspectionPaymentCallback,
+);
+
+// ---------------------------
+// 3️⃣ Verify & Approve Inspection Payment (Admin Only)
+// POST /api/inspections/verify-payment
+// Body: { inspectionId }
 // ---------------------------
 router.post(
   "/verify-payment",
@@ -48,6 +70,32 @@ router.post(
   authorize("admin"),
   upload.none(),
   verifyInspectionPayment,
+);
+
+// ---------------------------
+// 3.1 Reject Inspection Payment (Admin Only)
+// POST /api/inspections/reject-payment
+// Body: { id, reason }
+// ---------------------------
+router.post(
+  "/reject-payment",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  rejectInspectionPayment,
+);
+
+// ---------------------------
+// 3.2 Mark Refund Sent (Admin Only)
+// POST /api/inspections/mark-refund-sent
+// Body: { id, amountSent, transferReference, note }
+// ---------------------------
+router.post(
+  "/mark-refund-sent",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  markInspectionRefundSent,
 );
 
 // ---------------------------
@@ -64,7 +112,7 @@ router.patch(
 );
 
 // ---------------------------
-// 5️⃣ Reschedule / Reject Inspection (Buyer)
+// 5️⃣ Reschedule / Reject Inspection Date (Buyer)
 // PATCH /api/inspections/reschedule
 // Body: { inspectionId, reason }
 // ---------------------------

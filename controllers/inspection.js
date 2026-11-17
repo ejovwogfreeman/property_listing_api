@@ -11,20 +11,24 @@ const {
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
 
-// Helper for targeted socket notifications
+// Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
-  if (global.io && userId) {
-    global.io.to(userId.toString()).emit(event, data);
+  try {
+    if (global.io && userId) {
+      global.io.to(userId.toString()).emit(event, data);
+    }
+  } catch (err) {
+    console.error("Socket notification error:", err);
   }
 };
 
 const notifyBoth = (buyerId, agentId, event, data) => {
   notifyUser(buyerId, event, data);
-  notifyUser(agentId, event, data);
+  if (agentId) notifyUser(agentId, event, data);
 };
 
 // ---------------------------
-// 1️⃣ Request Inspection (Allows resume if unpaid)
+// 1️⃣ Request Inspection (Allows resume if unpaid, ignores cancelled)
 // ---------------------------
 const requestInspection = async (req, res) => {
   try {
@@ -37,13 +41,18 @@ const requestInspection = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Property not found" });
 
+    // Ignore cancelled inspection records when checking for existing ones
     const existingInspection = await Inspection.findOne({
       property: propertyId,
       user: userId,
+      status: { $ne: "inspection_cancelled" },
     });
 
     if (existingInspection) {
-      if (!existingInspection.feePaid) {
+      if (
+        !existingInspection.feePaid &&
+        existingInspection.status !== "inspection_payment_review"
+      ) {
         return res.status(200).json({
           success: true,
           resumed: true,
@@ -125,14 +134,61 @@ const initializeInspectionPayment = async (req, res) => {
     if (inspection.user?.toString() !== userId.toString())
       return res.status(403).json({ success: false, message: "Unauthorized" });
 
-    if (inspection.feePaid) {
+    if (
+      inspection.feePaid ||
+      [
+        "inspection_payment_review",
+        "inspection_paid",
+        "inspection_scheduled",
+        "inspection_confirmed",
+        "inspection_completed",
+      ].includes(inspection.status)
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Inspection fee has already been paid.",
+        message:
+          "Inspection fee has already been paid or is currently under review.",
       });
     }
 
+    // If reference already exists, check if old payment actually went through first
+    if (inspection.reference) {
+      try {
+        const prevVerification = await verifyTransaction(inspection.reference);
+        if (prevVerification && prevVerification.data.status === "success") {
+          await processInspectionPaymentConfirmation(
+            inspection,
+            inspection.reference,
+          );
+          return res.status(409).json({
+            success: false,
+            message:
+              "Payment was already received for this inspection. Status updated to review.",
+            inspectionId: inspection._id,
+            status: inspection.status,
+          });
+        }
+      } catch (e) {
+        // Ignore verification error on old ref and allow generating a fresh one
+      }
+    }
+
     const reference = crypto.randomBytes(16).toString("hex");
+
+    // Initialize transaction with Paystack first before committing state changes
+    const init = await initializeTransaction(
+      req.user.email,
+      Math.round(inspection.fee * 100),
+      reference,
+      callback_url,
+    );
+
+    if (!init || !init.success || !init.data?.authorization_url) {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to initialize Paystack transaction.",
+      });
+    }
 
     inspection.status = "inspection_initialized";
     inspection.reference = reference;
@@ -154,13 +210,6 @@ const initializeInspectionPayment = async (req, res) => {
       status: inspection.status,
     });
 
-    const init = await initializeTransaction(
-      req.user.email,
-      Math.round(inspection.fee * 100),
-      reference,
-      callback_url,
-    );
-
     return res.json({
       success: true,
       authorizationUrl: init.data.authorization_url,
@@ -175,40 +224,69 @@ const initializeInspectionPayment = async (req, res) => {
 };
 
 // ---------------------------
-// 3️⃣ Shared Payment Confirmation Logic
+// 3️⃣ Shared Payment Confirmation Logic (Idempotent & Resilient)
 // ---------------------------
 const processInspectionPaymentConfirmation = async (inspection, reference) => {
-  const verification = await verifyTransaction(reference);
+  let verification;
+  try {
+    verification = await verifyTransaction(reference);
+  } catch (netErr) {
+    console.error("Paystack network error during confirmation:", netErr);
+    return { success: true, status: "processing" };
+  }
+
   if (!verification || verification.data.status !== "success") {
     throw new Error("Payment not successful or verification failed");
   }
 
   const expectedAmountInKobo = Math.round(inspection.fee * 100);
-  if (verification.data.amount !== expectedAmountInKobo) {
-    throw new Error(
-      "Amount mismatch detected! Paid amount does not match inspection fee.",
-    );
+  const paidAmount = verification.data.amount;
+  let amountMismatch = false;
+
+  if (paidAmount !== expectedAmountInKobo) {
+    amountMismatch = true;
   }
 
+  // Idempotency: if already past initialized/requested, return current record
   if (
     inspection.status === "inspection_payment_review" ||
     inspection.status === "inspection_paid" ||
     inspection.status === "inspection_confirmed" ||
     inspection.status === "inspection_completed"
   ) {
-    return inspection; // Idempotent return
+    return inspection;
   }
 
-  inspection.status = "inspection_payment_review";
-  inspection.paystackPaidAt = new Date();
-  await inspection.save();
+  // Atomic state transition
+  const updated = await Inspection.findOneAndUpdate(
+    {
+      _id: inspection._id,
+      status: { $in: ["inspection_requested", "inspection_initialized"] },
+    },
+    {
+      $set: {
+        status: "inspection_payment_review",
+        paystackPaidAt: new Date(),
+        amountMismatch,
+        paidAmount: paidAmount / 100,
+      },
+    },
+    { new: true },
+  );
+
+  if (!updated) {
+    // Already updated concurrently
+    return await Inspection.findById(inspection._id);
+  }
 
   const agentId = inspection.owner?._id || inspection.owner;
 
   await Notification.create({
     user: inspection.user,
     title: "Inspection Payment Received",
-    message: `Your payment is confirmed and currently under review by the admin.`,
+    message: amountMismatch
+      ? `Your payment was received, but an amount mismatch was detected. It is under admin review.`
+      : `Your payment is confirmed and currently under review by the admin.`,
     meta: { inspectionId: inspection._id },
   });
 
@@ -226,7 +304,9 @@ const processInspectionPaymentConfirmation = async (inspection, reference) => {
     await Notification.create({
       user: admin._id,
       title: "Inspection Payment Review Required",
-      message: `An inspection payment requires your review and approval.`,
+      message: amountMismatch
+        ? `Inspection payment amount mismatch detected!`
+        : `An inspection payment requires your review and approval.`,
       meta: { inspectionId: inspection._id },
     });
     notifyUser(admin._id, "notification", {
@@ -234,7 +314,8 @@ const processInspectionPaymentConfirmation = async (inspection, reference) => {
       title: "Inspection Payment Review",
       message: `Inspection payment waiting for approval.`,
       inspectionId: inspection._id,
-      status: inspection.status,
+      status: updated.status,
+      amountMismatch,
     });
   }
 
@@ -243,10 +324,10 @@ const processInspectionPaymentConfirmation = async (inspection, reference) => {
     title: "Payment Under Review",
     message: `Inspection payment confirmed, awaiting admin approval.`,
     inspectionId: inspection._id,
-    status: inspection.status,
+    status: updated.status,
   });
 
-  return inspection;
+  return updated;
 };
 
 // ---------------------------
@@ -254,7 +335,7 @@ const processInspectionPaymentConfirmation = async (inspection, reference) => {
 // ---------------------------
 const confirmInspectionPaymentCallback = async (req, res) => {
   try {
-    const { inspectionId } = req.body;
+    const { inspectionId, reference } = req.body;
     const userId = req.user._id;
 
     const inspection =
@@ -269,7 +350,8 @@ const confirmInspectionPaymentCallback = async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    if (!inspection.reference) {
+    const payRef = reference || inspection.reference;
+    if (!payRef) {
       return res.status(400).json({
         success: false,
         message: "No payment reference found for this inspection.",
@@ -277,14 +359,15 @@ const confirmInspectionPaymentCallback = async (req, res) => {
     }
 
     try {
-      await processInspectionPaymentConfirmation(
+      const result = await processInspectionPaymentConfirmation(
         inspection,
-        inspection.reference,
+        payRef,
       );
       return res.json({
         success: true,
+        status: result.status || "inspection_payment_review",
         message: "Payment successfully confirmed and submitted for review.",
-        inspection,
+        inspection: result,
       });
     } catch (verifyErr) {
       return res.status(400).json({
@@ -337,6 +420,9 @@ const verifyInspectionPayment = async (req, res) => {
       });
     }
 
+    const expectedAmountInKobo = Math.round(inspection.fee * 100);
+    const amountMismatch = verification.data.amount !== expectedAmountInKobo;
+
     let escrow = await Escrow.findOne({ reference: inspection.reference });
     if (!escrow) {
       escrow = await Escrow.create({
@@ -357,6 +443,8 @@ const verifyInspectionPayment = async (req, res) => {
     inspection.escrowHeldBy = adminId;
     inspection.status = "inspection_paid";
     inspection.paidAt = new Date();
+    inspection.amountMismatch = amountMismatch;
+    if (amountMismatch) inspection.paidAmount = verification.data.amount / 100;
     await inspection.save();
 
     const agentId = inspection.owner?._id || inspection.owner;
@@ -388,6 +476,7 @@ const verifyInspectionPayment = async (req, res) => {
 
     res.json({
       success: true,
+      amountMismatch,
       message:
         "Payment verified, inspection marked as paid, and escrow created successfully",
       inspection,
@@ -400,16 +489,130 @@ const verifyInspectionPayment = async (req, res) => {
 };
 
 // ---------------------------
-// 6️⃣ Paystack Webhook Handler (Public)
+// 2️⃣.1 Reject Payment Under Review (Admin Only - New)
+// ---------------------------
+const rejectInspectionPayment = async (req, res) => {
+  try {
+    const { id, reason } = req.body;
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin only." });
+    }
+
+    const inspection = await Inspection.findById(id).populate("property");
+    if (!inspection)
+      return res
+        .status(404)
+        .json({ success: false, message: "Inspection not found" });
+
+    if (inspection.status !== "inspection_payment_review") {
+      return res.status(400).json({
+        success: false,
+        message: "Inspection is not under payment review.",
+      });
+    }
+
+    inspection.status = "inspection_cancelled";
+    inspection.refundDue = true;
+    inspection.refundAmount = inspection.paidAmount || inspection.fee;
+    await inspection.save();
+
+    const agentId = inspection.owner?._id || inspection.owner;
+
+    await Notification.create({
+      user: inspection.user,
+      title: "Inspection Payment Rejected",
+      message: `Your payment was rejected. Reason: ${reason || "Admin review failed"}. Your refund will be sent to your original payment method.`,
+      meta: { inspectionId: inspection._id },
+    });
+
+    notifyBoth(inspection.user, agentId, "notification", {
+      type: "inspection_cancelled",
+      title: "Inspection Payment Rejected",
+      message: `Inspection payment was rejected by admin.`,
+      inspectionId: inspection._id,
+      status: inspection.status,
+    });
+
+    res.json({
+      success: true,
+      message: "Inspection payment rejected and marked for refund.",
+      inspection,
+    });
+  } catch (err) {
+    console.error("rejectInspectionPayment error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 2️⃣.2 Mark Refund Sent (Admin Only - New)
+// ---------------------------
+const markInspectionRefundSent = async (req, res) => {
+  try {
+    const { id, amountSent, transferReference, note } = req.body;
+    if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Admin only." });
+    }
+
+    const inspection = await Inspection.findById(id);
+    if (!inspection)
+      return res
+        .status(404)
+        .json({ success: false, message: "Inspection not found" });
+
+    if (!inspection.refundDue) {
+      return res.status(400).json({
+        success: false,
+        message: "No pending refund due for this inspection.",
+      });
+    }
+
+    inspection.refundDue = false;
+    inspection.refundSentAt = new Date();
+    inspection.refundSentAmount = amountSent || inspection.refundAmount;
+    inspection.refundReference = transferReference;
+    inspection.refundNote = note;
+    await inspection.save();
+
+    await Notification.create({
+      user: inspection.user,
+      title: "Inspection Refund Sent",
+      message: `Your offline refund of ${inspection.refundSentAmount} has been sent. Reference: ${transferReference || "N/A"}`,
+      meta: { inspectionId: inspection._id },
+    });
+
+    notifyUser(inspection.user, "notification", {
+      type: "inspection_refund_sent",
+      title: "Refund Sent",
+      message: `Inspection refund has been marked as sent by admin.`,
+      inspectionId: inspection._id,
+    });
+
+    res.json({
+      success: true,
+      message: "Inspection refund marked as sent successfully.",
+      inspection,
+    });
+  } catch (err) {
+    console.error("markInspectionRefundSent error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// 6️⃣ Paystack Webhook Handler (Public) - Uses PAYSTACK_SECRET
 // ---------------------------
 const handlePaystackWebhook = async (req, res) => {
   try {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
+    const secret = process.env.PAYSTACK_SECRET;
     const paystackSignature = req.headers["x-paystack-signature"];
+
+    // Use rawBody captured via express.json verify middleware if available
+    const rawBodyPayload = req.rawBody ? req.rawBody : JSON.stringify(req.body);
 
     const hash = crypto
       .createHmac("sha512", secret)
-      .update(JSON.stringify(req.body))
+      .update(rawBodyPayload)
       .digest("hex");
 
     if (hash !== paystackSignature) {
@@ -428,36 +631,8 @@ const handlePaystackWebhook = async (req, res) => {
         "property owner",
       );
       if (inspection) {
-        const expectedAmountInKobo = Math.round(inspection.fee * 100);
-        if (
-          data.amount === expectedAmountInKobo &&
-          inspection.status !== "inspection_paid"
-        ) {
+        if (inspection.status !== "inspection_paid") {
           await processInspectionPaymentConfirmation(inspection, reference);
-        }
-      }
-
-      // Check Purchase
-      const purchase = await Purchase.findOne({ reference }).populate(
-        "property owner buyer",
-      );
-      if (purchase) {
-        const expectedAmountInKobo = Math.round(purchase.price * 100);
-        if (
-          data.amount === expectedAmountInKobo &&
-          purchase.status === "none"
-        ) {
-          purchase.status = "property_payment_review";
-          purchase.paystackPaidAt = new Date();
-          await purchase.save();
-
-          notifyBoth(purchase.buyer, purchase.owner, "notification", {
-            type: "property_payment_review",
-            title: "Property Payment Under Review",
-            message: `Property purchase payment confirmed via webhook, awaiting admin approval.`,
-            purchaseId: purchase._id,
-            status: purchase.status,
-          });
         }
       }
     }
@@ -792,6 +967,9 @@ const changeInspectionStatus = async (req, res) => {
 
     inspection.status = status;
     inspection.escrowHeldBy = adminId;
+    if (status === "inspection_cancelled") {
+      inspection.refundDue = true;
+    }
     await inspection.save();
 
     let escrow = await Escrow.findOne({ inspection: inspection._id });
@@ -912,7 +1090,7 @@ const getAgentInspections = async (req, res) => {
   }
 };
 
-// Hides draft/unpaid statuses from admin list
+// Hides draft/unpaid statuses from admin list, includes refundDue tracking
 const getAllInspections = async (req, res) => {
   try {
     const inspections = await Inspection.find({
@@ -950,6 +1128,8 @@ module.exports = {
   initializeInspectionPayment,
   confirmInspectionPaymentCallback,
   verifyInspectionPayment,
+  rejectInspectionPayment,
+  markInspectionRefundSent,
   handlePaystackWebhook,
   scheduleInspection,
   rescheduleInspection,

@@ -18,24 +18,38 @@ const InspectionSchema = new Schema(
         "inspection_scheduled", // 5. Date/time for inspection is set
         "inspection_confirmed", // 6. Owner/Admin confirms the appointment
         "inspection_completed", // 7. Inspection has successfully taken place
-        "inspection_cancelled", // (Good to have just in case)
+        "inspection_cancelled", // 8. Cancelled / rejected
       ],
       default: "none",
     },
     fee: { type: Number, required: true },
 
-    // --- ITEM 18: Platform Fee Recorded per Inspection ---
+    // --- Platform Fee Recorded per Inspection ---
     platformFee: { type: Number, default: 0 },
-    // ----------------------------------------------------
+    // --------------------------------------------
 
     // 🔑 Paystack reference
     reference: {
       type: String,
       unique: true,
+      sparse: true,
     },
     escrowHeldBy: { type: Schema.Types.ObjectId, ref: "User" }, // admin
     feePaid: { type: Boolean, default: false },
     feeReleased: { type: Boolean, default: false },
+
+    // --- Refund & Mismatch Audit Fields ---
+    refundDue: { type: Boolean, default: false },
+    refundAmount: { type: Number, default: 0 },
+    refundSentAt: { type: Date },
+    refundSentAmount: { type: Number },
+    refundReference: { type: String },
+    refundNote: { type: String },
+
+    amountMismatch: { type: Boolean, default: false },
+    paidAmount: { type: Number },
+    // --------------------------------------
+
     scheduledDate: { type: Date, default: Date.now },
     initializedAt: { type: Date },
     paystackPaidAt: { type: Date }, // 🕒 Track exact moment Paystack confirmed payment

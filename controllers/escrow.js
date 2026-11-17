@@ -6,6 +6,17 @@ const Purchase = require("../models/purchase");
 const Transaction = require("../models/transaction");
 const { Dispute } = require("../models/dispute");
 
+// Helper for targeted socket notifications with error isolation
+const notifyUser = (userId, event, data) => {
+  try {
+    if (global.io && userId) {
+      global.io.to(userId.toString()).emit(event, data);
+    }
+  } catch (err) {
+    console.error("Socket notification error:", err);
+  }
+};
+
 // ---------------------------
 // Get All Escrows (Admin Only)
 // ---------------------------
@@ -126,6 +137,14 @@ const changeEscrowStatus = async (req, res) => {
         .json({ success: false, message: "Escrow record not found" });
     }
 
+    // Block modifying escrows that are in refund review or already refunded
+    if (["refund_pending", "refunded"].includes(escrow.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot change status: Escrow is currently in ${escrow.status} state.`,
+      });
+    }
+
     const previousStatus = escrow.status;
 
     // Determine exact payout amount: netPayout for purchases, full amount for inspections
@@ -137,7 +156,6 @@ const changeEscrowStatus = async (req, res) => {
     if (status === "released" && previousStatus !== "released") {
       let openDispute = null;
 
-      // Fixed Dispute status check to use valid enum values: opened, under_review, escalated
       if (escrow.purchase) {
         openDispute = await Dispute.findOne({
           purchase: escrow.purchase,
@@ -175,7 +193,6 @@ const changeEscrowStatus = async (req, res) => {
       seller.balance += payoutAmount;
       await seller.save();
 
-      // 📝 Record the release in transactions with proper `from` and `to`, plus unique reference
       await Transaction.create({
         from: adminId,
         to: seller._id,
@@ -188,20 +205,17 @@ const changeEscrowStatus = async (req, res) => {
       await Notification.create({
         user: seller._id,
         title: "Escrow Released",
-        message: `₦${payoutAmount} from escrow has been released and added to your wallet balance.`,
+        message: `Funds from escrow have been released and added to your wallet balance.`,
         meta: { escrowId: escrow._id },
       });
 
-      // 🔌 Send socket notification to that agent only for instant refresh
-      if (global.io) {
-        global.io.to(seller._id.toString()).emit("notification", {
-          type: "escrow_released",
-          title: "Escrow Released",
-          message: `₦${payoutAmount} has been added to your wallet.`,
-          balance: seller.balance,
-          escrowId: escrow._id,
-        });
-      }
+      notifyUser(seller._id, "notification", {
+        type: "escrow_released",
+        title: "Escrow Released",
+        message: `Escrow funds have been added to your wallet.`,
+        balance: seller.balance,
+        escrowId: escrow._id,
+      });
 
       if (escrow.inspection) {
         await Inspection.findByIdAndUpdate(escrow.inspection, {
@@ -211,18 +225,6 @@ const changeEscrowStatus = async (req, res) => {
         await Purchase.findByIdAndUpdate(escrow.purchase, {
           feeReleased: true,
         });
-      } else {
-        if (escrow.type === "inspection") {
-          await Inspection.findOneAndUpdate(
-            { property: escrow.property, user: escrow.buyer },
-            { feeReleased: true },
-          );
-        } else if (escrow.type === "purchase") {
-          await Purchase.findOneAndUpdate(
-            { property: escrow.property, buyer: escrow.buyer },
-            { feeReleased: true },
-          );
-        }
       }
 
       escrow.releasedAt = new Date();
@@ -240,7 +242,6 @@ const changeEscrowStatus = async (req, res) => {
         seller.balance -= payoutAmount;
         await seller.save();
 
-        // Record reversal transaction with valid `from` and `to`
         await Transaction.create({
           from: adminId,
           to: seller._id,
@@ -250,15 +251,13 @@ const changeEscrowStatus = async (req, res) => {
           reference: `${escrow.reference}-rev-${Date.now()}`,
         });
 
-        if (global.io) {
-          global.io.to(seller._id.toString()).emit("notification", {
-            type: "escrow_reversal",
-            title: "Escrow Release Reversed",
-            message: `₦${payoutAmount} has been deducted from your wallet due to an escrow status change.`,
-            balance: seller.balance,
-            escrowId: escrow._id,
-          });
-        }
+        notifyUser(seller._id, "notification", {
+          type: "escrow_reversal",
+          title: "Escrow Release Reversed",
+          message: `Funds have been deducted from your wallet due to an escrow status change.`,
+          balance: seller.balance,
+          escrowId: escrow._id,
+        });
       }
 
       if (escrow.inspection) {
@@ -269,18 +268,6 @@ const changeEscrowStatus = async (req, res) => {
         await Purchase.findByIdAndUpdate(escrow.purchase, {
           feeReleased: false,
         });
-      } else {
-        if (escrow.type === "inspection") {
-          await Inspection.findOneAndUpdate(
-            { property: escrow.property, user: escrow.buyer },
-            { feeReleased: false },
-          );
-        } else if (escrow.type === "purchase") {
-          await Purchase.findOneAndUpdate(
-            { property: escrow.property, buyer: escrow.buyer },
-            { feeReleased: false },
-          );
-        }
       }
 
       escrow.releasedAt = null;
@@ -303,104 +290,199 @@ const changeEscrowStatus = async (req, res) => {
 };
 
 // ---------------------------
-// Admin Refund Escrow
+// Step 1: Approve Escrow Refund (Admin Only - Two-Step Flow)
 // ---------------------------
-const refundEscrow = async (req, res) => {
+const approveEscrowRefund = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
     const adminId = req.user._id;
 
-    const escrow = await Escrow.findById(id);
-    if (!escrow) {
-      return res.status(404).json({
-        success: false,
-        message: "Escrow record not found.",
-      });
+    if (!req.user || req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ success: false, message: "Admin access required." });
     }
 
-    if (escrow.status === "refunded") {
-      return res.status(400).json({
-        success: false,
-        message: "This escrow transaction has already been refunded.",
-        escrow,
-      });
-    }
-
-    const buyer = await User.findByIdAndUpdate(
-      escrow.buyer,
-      { $inc: { balance: escrow.amount } },
+    // Atomically claim escrow from on_hold status to refund_pending
+    const escrow = await Escrow.findOneAndUpdate(
+      { _id: id, status: "on_hold" },
+      {
+        $set: {
+          status: "refund_pending",
+          reason: reason || "Refund approved by admin",
+          refundApprovedAt: new Date(),
+          refundApprovedBy: adminId,
+        },
+      },
       { new: true },
     );
 
-    if (!buyer) {
-      return res.status(404).json({
+    if (!escrow) {
+      return res.status(400).json({
         success: false,
-        message: "Buyer associated with this escrow was not found.",
+        message:
+          "Escrow not found or cannot be refunded because it is not in 'on_hold' status (may already be released, refunded, or pending).",
       });
     }
 
-    escrow.status = "refunded";
-    escrow.releasedAt = new Date();
-    escrow.releasedBy = adminId;
-    escrow.reason = reason || "Refund processed by admin";
-    await escrow.save();
-
+    // Cancel related inspection or purchase and release property locks
     if (escrow.purchase) {
       await Purchase.findByIdAndUpdate(escrow.purchase, {
         status: "purchase_cancelled",
+        holdsProperty: false,
+        refundDue: true,
+        refundAmount: escrow.amount,
         feeReleased: false,
       });
     } else if (escrow.inspection) {
       await Inspection.findByIdAndUpdate(escrow.inspection, {
         status: "inspection_cancelled",
+        refundDue: true,
+        refundAmount: escrow.amount,
         feeReleased: false,
       });
     } else if (escrow.property && escrow.buyer) {
       if (escrow.type === "purchase") {
         await Purchase.findOneAndUpdate(
           { property: escrow.property, buyer: escrow.buyer },
-          { status: "purchase_cancelled", feeReleased: false },
+          {
+            status: "purchase_cancelled",
+            holdsProperty: false,
+            refundDue: true,
+            refundAmount: escrow.amount,
+            feeReleased: false,
+          },
         );
       } else if (escrow.type === "inspection") {
         await Inspection.findOneAndUpdate(
           { property: escrow.property, user: escrow.buyer },
-          { status: "inspection_cancelled", feeReleased: false },
+          {
+            status: "inspection_cancelled",
+            refundDue: true,
+            refundAmount: escrow.amount,
+            feeReleased: false,
+          },
         );
       }
     }
 
-    // Record refund transaction with valid `from` and `to`
-    await Transaction.create({
-      from: adminId,
-      to: escrow.buyer,
-      amount: escrow.amount,
-      type: "escrow_refund",
-      status: "completed",
-      reference: `${escrow.reference}-refund-${Date.now()}`,
+    // Notify buyer (offline payment method note) and seller
+    await Notification.create({
+      user: escrow.buyer,
+      title: "Refund Approved",
+      message: `Your escrow refund of ${escrow.amount.toLocaleString()} has been approved and will be sent to your original payment method.`,
+      meta: { escrowId: escrow._id },
     });
 
-    if (global.io) {
-      global.io.to(escrow.buyer.toString()).emit("notification", {
-        type: "escrow_refunded",
-        title: "Escrow Refunded",
-        message: `An escrow payment of ₦${escrow.amount.toLocaleString()} has been refunded to your wallet.`,
-        userId: escrow.buyer,
+    notifyUser(escrow.buyer, "notification", {
+      type: "escrow_refund_approved",
+      title: "Refund Approved",
+      message: `Your refund has been approved and is being processed offline.`,
+      escrowId: escrow._id,
+    });
+
+    if (escrow.seller) {
+      await Notification.create({
+        user: escrow.seller,
+        title: "Escrow Refunded / Deal Cancelled",
+        message: `An escrow transaction was cancelled and approved for refund.`,
+        meta: { escrowId: escrow._id },
+      });
+      notifyUser(escrow.seller, "notification", {
+        type: "escrow_refund_approved",
+        title: "Escrow Cancelled",
+        message: `Transaction escrow has been approved for refund.`,
         escrowId: escrow._id,
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Escrow successfully refunded to buyer's wallet.",
+      message:
+        "Escrow refund approved successfully. Deal cancelled and set to refund pending.",
       escrow,
     });
   } catch (err) {
-    console.error("refundEscrow error:", err);
-    return res.status(500).json({
-      success: false,
-      message: err.message || "An error occurred while refunding the escrow.",
+    console.error("approveEscrowRefund error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ---------------------------
+// Step 2: Mark Escrow Refund Sent (Admin Only - Two-Step Flow)
+// ---------------------------
+const completeEscrowRefund = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amountSent, transferReference, note } = req.body;
+    const adminId = req.user._id;
+
+    if (!req.user || req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ success: false, message: "Admin access required." });
+    }
+
+    // Atomically claim from refund_pending to refunded
+    const escrow = await Escrow.findOneAndUpdate(
+      { _id: id, status: "refund_pending" },
+      {
+        $set: {
+          status: "refunded",
+          refundedAt: new Date(),
+          refundedAmount: amountSent || escrow.amount,
+          transferReference,
+          refundNote: note,
+          releasedAt: new Date(),
+          releasedBy: adminId,
+        },
+      },
+      { new: true },
+    );
+
+    if (!escrow) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Escrow not found or is not currently in 'refund_pending' status.",
+      });
+    }
+
+    // Record ledger Transaction ONLY (Zero buyer wallet crediting)
+    await Transaction.create({
+      from: adminId,
+      to: escrow.buyer,
+      amount: escrow.refundedAmount || escrow.amount,
+      type: "escrow_refund",
+      status: "completed",
+      reference:
+        transferReference || `${escrow.reference}-refund-${Date.now()}`,
     });
+
+    await Notification.create({
+      user: escrow.buyer,
+      title: "Refund Sent",
+      message: `Your offline refund of ${(escrow.refundedAmount || escrow.amount).toLocaleString()} has been sent. Reference: ${transferReference || "N/A"}`,
+      meta: { escrowId: escrow._id },
+    });
+
+    notifyUser(escrow.buyer, "notification", {
+      type: "escrow_refund_sent",
+      title: "Refund Sent",
+      message: `Your refund has been marked as sent by admin.`,
+      escrowId: escrow._id,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Escrow refund marked as sent and recorded on ledger successfully.",
+      escrow,
+    });
+  } catch (err) {
+    console.error("completeEscrowRefund error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -409,5 +491,6 @@ module.exports = {
   getEscrowById,
   getAgentEscrows,
   changeEscrowStatus,
-  refundEscrow,
+  approveEscrowRefund,
+  completeEscrowRefund,
 };

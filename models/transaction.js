@@ -46,6 +46,15 @@ const TransactionSchema = new Schema(
       default: "pending",
     },
 
+    // --- Saved snapshot of bank details for withdrawals ---
+    bankDetails: {
+      bankName: { type: String },
+      bankCode: { type: String },
+      accountNumber: { type: String },
+      accountName: { type: String },
+    },
+    // -----------------------------------------------------
+
     // ⏱️ When payment was confirmed
     approvedAt: {
       type: Date,

@@ -17,14 +17,27 @@ const EscrowSchema = new Schema(
     netPayout: { type: Number, default: 0 }, // 🛡️ Added so purchase net payout isn't silently dropped
     status: {
       type: String,
-      enum: ["on_hold", "released", "refunded"],
+      enum: ["on_hold", "refund_pending", "released", "refunded"],
       default: "on_hold",
     },
     type: String,
     reference: String,
-    // --- Audit fields added below ---
+
+    // --- Audit fields for release & manual refunds ---
     releasedAt: { type: Date, default: null },
     releasedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+
+    refundApprovedAt: { type: Date, default: null },
+    refundApprovedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    refundedAt: { type: Date, default: null },
+    refundedAmount: { type: Number, default: null },
+    transferReference: { type: String, default: null },
+    refundNote: { type: String, default: null },
+
     reason: { type: String, default: null },
   },
   { timestamps: true },
