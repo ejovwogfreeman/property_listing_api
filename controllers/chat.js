@@ -1,4 +1,5 @@
 // controllers/chatController.js
+const mongoose = require("mongoose");
 const Chat = require("../models/chat");
 const Message = require("../models/message");
 const Property = require("../models/property");

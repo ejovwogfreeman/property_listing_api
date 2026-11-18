@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Counter = require("./counter");
 
 const propertySchema = new mongoose.Schema(
   {
@@ -164,51 +165,21 @@ const propertySchema = new mongoose.Schema(
 
 // --- PRE-SAVE HOOK: Auto-generate Code & Track Status History ---
 propertySchema.pre("save", async function (next) {
-  if (!this.code) {
-    let isUnique = false;
-    let attempts = 0;
-
-    while (!isUnique && attempts < 5) {
-      attempts++;
-      try {
-        // Find the property with the highest code matching PROP-XXXX format
-        const lastProperty = await mongoose
-          .model("Property")
-          .findOne({ code: /^PROP-\d+$/ })
-          .sort({ createdAt: -1 });
-
-        let nextNumber = 1;
-        if (lastProperty && lastProperty.code) {
-          const parts = lastProperty.code.split("-");
-          const parsed = parseInt(parts[1], 10);
-          if (!isNaN(parsed)) {
-            nextNumber = parsed + 1;
-          }
-        }
-
-        const candidateCode = `PROP-${String(nextNumber).padStart(4, "0")}`;
-
-        // Check if it genuinely exists (handles legacy records without codes)
-        const existing = await mongoose
-          .model("Property")
-          .findOne({ code: candidateCode });
-        if (!existing) {
-          this.code = candidateCode;
-          isUnique = true;
-        } else {
-          // If collision happened due to concurrent requests, increment further or fallback to random suffix
-          nextNumber += attempts;
-        }
-      } catch (err) {
-        if (attempts >= 5) {
-          // Fallback to random unique code if sequence gets stuck
-          this.code = `PROP-${Math.floor(1000 + Math.random() * 9000)}`;
-          isUnique = true;
-        }
-      }
+  try {
+    if (!this.code) {
+      // atomic counter: each call gets the next number, even when two
+      // properties are saved at the same moment
+      const counter = await Counter.findOneAndUpdate(
+        { _id: "property" },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true },
+      );
+      this.code = `PROP-${String(counter.seq).padStart(4, "0")}`;
     }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
 
 module.exports = mongoose.model("Property", propertySchema);
