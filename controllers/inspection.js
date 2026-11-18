@@ -10,6 +10,9 @@ const {
   verifyTransaction,
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
+// const {
+//   processInspectionPaymentConfirmation,
+// } = require("./controllers/purchase.js");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -40,6 +43,24 @@ const requestInspection = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
+
+    // A cancelled inspection whose money hasn't been sent back yet blocks a
+    // new request. The admin clears refundDue with "mark refund sent".
+    const refundPending = await Inspection.findOne({
+      property: propertyId,
+      user: userId,
+      status: "inspection_cancelled",
+      refundDue: true,
+    });
+    if (refundPending) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Your refund for the cancelled inspection is still being processed. You can request a new inspection once it has been sent.",
+        inspectionId: refundPending._id,
+        status: refundPending.status,
+      });
+    }
 
     // Ignore cancelled inspection records when checking for existing ones
     const existingInspection = await Inspection.findOne({
@@ -183,7 +204,7 @@ const initializeInspectionPayment = async (req, res) => {
       callback_url,
     );
 
-    if (!init || !init.success || !init.data?.authorization_url) {
+    if (!init || !init.status || !init.data?.authorization_url) {
       return res.status(400).json({
         success: false,
         message: "Failed to initialize Paystack transaction.",
@@ -634,6 +655,16 @@ const handlePaystackWebhook = async (req, res) => {
         if (inspection.status !== "inspection_paid") {
           await processInspectionPaymentConfirmation(inspection, reference);
         }
+      }
+      const purchase = await Purchase.findOne({ reference }).populate(
+        "property owner",
+      );
+      if (purchase) {
+        await processPurchasePaymentConfirmation(purchase, reference);
+      }
+
+      if (data.metadata?.purpose === "wallet_funding") {
+        await recordWalletFunding(reference, data); // see section 6
       }
     }
 

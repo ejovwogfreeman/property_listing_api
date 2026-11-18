@@ -186,12 +186,10 @@ const initializePurchasePayment = async (req, res) => {
         "funds_released",
       ].includes(purchase.status)
     )
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Purchase already paid or under review",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Purchase already paid or under review",
+      });
 
     // If reference exists, check if old payment went through
     if (purchase.reference) {
@@ -224,13 +222,11 @@ const initializePurchasePayment = async (req, res) => {
       callback_url,
     );
 
-    if (!init || !init.success || !init.data?.authorization_url) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Failed to initialize Paystack transaction.",
-        });
+    if (!init || !init.status || !init.data?.authorization_url) {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to initialize Paystack transaction.",
+      });
     }
 
     purchase.reference = reference;
@@ -303,22 +299,59 @@ const processPurchasePaymentConfirmation = async (purchase, reference) => {
   }
 
   // Atomic state update and property hold lock
-  const updated = await Purchase.findOneAndUpdate(
-    {
-      _id: purchase._id,
-      status: "none",
-    },
-    {
-      $set: {
-        status: "property_payment_review",
-        paystackPaidAt: new Date(),
-        holdsProperty: true,
-        amountMismatch,
-        paidAmount: paidAmount / 100,
+  // const updated = await Purchase.findOneAndUpdate(
+  //   {
+  //     _id: purchase._id,
+  //     status: "none",
+  //   },
+  //   {
+  //     $set: {
+  //       status: "property_payment_review",
+  //       paystackPaidAt: new Date(),
+  //       holdsProperty: true,
+  //       amountMismatch,
+  //       paidAmount: paidAmount / 100,
+  //     },
+  //   },
+  //   { new: true },
+  // );
+
+  let updated;
+  try {
+    updated = await Purchase.findOneAndUpdate(
+      { _id: purchase._id, status: "none" },
+      {
+        $set: {
+          status: "property_payment_review",
+          paystackPaidAt: new Date(),
+          holdsProperty: true,
+          amountMismatch,
+          paidAmount: paidAmount / 100,
+        },
       },
-    },
-    { new: true },
-  );
+      { new: true },
+    );
+  } catch (err) {
+    if (err.code !== 11000) throw err;
+    // another buyer already holds this property: keep the payment in review,
+    // without the lock, and flag it so the admin rejects and refunds it
+    updated = await Purchase.findOneAndUpdate(
+      { _id: purchase._id, status: "none" },
+      {
+        $set: {
+          status: "property_payment_review",
+          paystackPaidAt: new Date(),
+          holdsProperty: false,
+          refundDue: true,
+          refundAmount: paidAmount / 100,
+          amountMismatch,
+          paidAmount: paidAmount / 100,
+        },
+      },
+      { new: true },
+    );
+    // notify admins: "Second payment for a property that is already taken. Reject and refund."
+  }
 
   if (!updated) {
     return await Purchase.findById(purchase._id);
@@ -544,12 +577,10 @@ const rejectPurchasePayment = async (req, res) => {
         .json({ success: false, message: "Purchase not found" });
 
     if (purchase.status !== "property_payment_review") {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Purchase is not under payment review.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Purchase is not under payment review.",
+      });
     }
 
     purchase.status = "purchase_cancelled";
@@ -604,12 +635,10 @@ const markPurchaseRefundSent = async (req, res) => {
         .json({ success: false, message: "Purchase not found" });
 
     if (!purchase.refundDue) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "No pending refund due for this purchase.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "No pending refund due for this purchase.",
+      });
     }
 
     purchase.refundDue = false;
@@ -952,8 +981,8 @@ const changePurchaseStatus = async (req, res) => {
       "handover_rescheduled",
       "handover_confirmed",
       "handover_completed",
-      "funds_released",
-      "purchase_cancelled",
+      // "funds_released",
+      // "purchase_cancelled",
     ];
 
     if (!allowedStatuses.includes(status)) {
@@ -986,29 +1015,29 @@ const changePurchaseStatus = async (req, res) => {
 
     const escrow = await Escrow.findOne({ purchase: purchase._id });
 
-    if (status === "funds_released") {
-      purchase.feeReleased = true;
-      purchase.completedAt = purchase.completedAt || new Date();
-      purchase.holdsProperty = false;
+    // if (status === "funds_released") {
+    //   purchase.feeReleased = true;
+    //   purchase.completedAt = purchase.completedAt || new Date();
+    //   purchase.holdsProperty = false;
 
-      if (escrow) {
-        escrow.status = "released";
-        escrow.releasedAt = new Date();
-        escrow.releasedBy = req.user._id;
-        if (req.body.reason) escrow.reason = req.body.reason;
-        await escrow.save();
-      }
-    } else if (status === "purchase_cancelled") {
-      purchase.holdsProperty = false; // Release property lock
-      purchase.refundDue = true;
-      if (escrow && escrow.status !== "released") {
-        escrow.status = "refund_pending";
-        escrow.releasedAt = new Date();
-        escrow.releasedBy = req.user._id;
-        if (req.body.reason) escrow.reason = req.body.reason;
-        await escrow.save();
-      }
-    }
+    //   if (escrow) {
+    //     escrow.status = "released";
+    //     escrow.releasedAt = new Date();
+    //     escrow.releasedBy = req.user._id;
+    //     if (req.body.reason) escrow.reason = req.body.reason;
+    //     await escrow.save();
+    //   }
+    // } else if (status === "purchase_cancelled") {
+    //   purchase.holdsProperty = false; // Release property lock
+    //   purchase.refundDue = true;
+    //   if (escrow && escrow.status !== "released") {
+    //     escrow.status = "refund_pending";
+    //     escrow.releasedAt = new Date();
+    //     escrow.releasedBy = req.user._id;
+    //     if (req.body.reason) escrow.reason = req.body.reason;
+    //     await escrow.save();
+    //   }
+    // }
 
     await purchase.save();
 
@@ -1112,7 +1141,7 @@ const getAgentPurchases = async (req, res) => {
 
     const purchases = await Purchase.find({
       property: { $in: propertyIds },
-      status: { $nin: ["none", "property_payment_review"] },
+      status: { $nin: ["none"] },
     })
       .populate(
         "property",
@@ -1138,7 +1167,7 @@ const getAgentPurchases = async (req, res) => {
 const getAllPurchases = async (req, res) => {
   try {
     const purchases = await Purchase.find({
-      status: { $nin: ["none", "property_payment_review"] },
+      status: { $nin: ["none"] },
     })
       .populate(
         "property",

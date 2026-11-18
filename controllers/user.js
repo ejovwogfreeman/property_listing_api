@@ -120,7 +120,7 @@ const changeProfilePicture = async (req, res) => {
     });
 
     if (global.io) {
-      global.io.emit("notification", {
+      global.io.to("admin").emit("notification", {
         type: "profile_picture_updated",
         title: "Profile Picture Updated",
         message: `${user.name} changed their profile picture`,

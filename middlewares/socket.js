@@ -119,8 +119,11 @@ const socketHandler = (io, onlineUsers) => {
     // Register user online & join user room
     // ------------------------
     socket.on("user_connected", (userId) => {
-      if (userId) {
-        const userIdStr = userId.toString();
+      // if (userId) {
+      //   const userIdStr = userId.toString();
+      const verifiedId = socket.user?.id || socket.user?._id;
+      if (verifiedId) {
+        const userIdStr = verifiedId.toString();
 
         // 1. Join a room named after the user ID (supports multi-tab/multi-device)
         socket.join(userIdStr);
@@ -139,42 +142,42 @@ const socketHandler = (io, onlineUsers) => {
     // ------------------------
     // Send notification to a specific user
     // ------------------------
-    socket.on("notify", async (data) => {
-      try {
-        const { userId, title, message, meta } = data || {};
-        if (!userId) return;
+    // socket.on("notify", async (data) => {
+    //   try {
+    //     const { userId, title, message, meta } = data || {};
+    //     if (!userId) return;
 
-        console.log("📨 Notification received for user:", {
-          userId,
-          title,
-          message,
-          meta,
-        });
+    //     console.log("📨 Notification received for user:", {
+    //       userId,
+    //       title,
+    //       message,
+    //       meta,
+    //     });
 
-        // Persist notification in DB
-        const notif = await Notification.create({
-          user: userId,
-          title,
-          message,
-          meta,
-        });
+    //     // Persist notification in DB
+    //     const notif = await Notification.create({
+    //       user: userId,
+    //       title,
+    //       message,
+    //       meta,
+    //     });
 
-        // Emit real-time if online (via user room or direct socket)
-        const userIdStr = userId.toString();
-        const targetSocket = onlineUsers.get(userIdStr);
+    //     // Emit real-time if online (via user room or direct socket)
+    //     const userIdStr = userId.toString();
+    //     const targetSocket = onlineUsers.get(userIdStr);
 
-        if (targetSocket) {
-          io.to(targetSocket).emit("notification", notif);
-          console.log(`✅ Notification sent to online user (${userIdStr})`);
-        } else {
-          console.log(
-            `🕓 User (${userIdStr}) is offline. Notification stored only.`,
-          );
-        }
-      } catch (err) {
-        console.error("❌ notify error:", err);
-      }
-    });
+    //     if (targetSocket) {
+    //       io.to(targetSocket).emit("notification", notif);
+    //       console.log(`✅ Notification sent to online user (${userIdStr})`);
+    //     } else {
+    //       console.log(
+    //         `🕓 User (${userIdStr}) is offline. Notification stored only.`,
+    //       );
+    //     }
+    //   } catch (err) {
+    //     console.error("❌ notify error:", err);
+    //   }
+    // });
 
     // ------------------------
     // Disconnect

@@ -190,8 +190,21 @@ const changeEscrowStatus = async (req, res) => {
           .json({ success: false, message: "Seller/Agent not found" });
       }
 
-      seller.balance += payoutAmount;
-      await seller.save();
+      // seller.balance += payoutAmount;
+      // await seller.save();
+
+      const claimed = await Escrow.findOneAndUpdate(
+        { _id: escrow._id, status: "on_hold" },
+        { $set: { status: "released" } },
+      );
+      if (!claimed) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Escrow was already released." });
+      }
+      await User.findByIdAndUpdate(seller._id, {
+        $inc: { balance: payoutAmount },
+      });
 
       await Transaction.create({
         from: adminId,
@@ -431,7 +444,7 @@ const completeEscrowRefund = async (req, res) => {
         $set: {
           status: "refunded",
           refundedAt: new Date(),
-          refundedAmount: amountSent || escrow.amount,
+          refundedAmount: amountSent || null,
           transferReference,
           refundNote: note,
           releasedAt: new Date(),
@@ -449,6 +462,11 @@ const completeEscrowRefund = async (req, res) => {
       });
     }
 
+    if (!escrow.refundedAmount) {
+      escrow.refundedAmount = escrow.amount;
+      await escrow.save();
+    }
+
     // Record ledger Transaction ONLY (Zero buyer wallet crediting)
     await Transaction.create({
       from: adminId,
@@ -459,6 +477,19 @@ const completeEscrowRefund = async (req, res) => {
       reference:
         transferReference || `${escrow.reference}-refund-${Date.now()}`,
     });
+
+    const refundRecord = {
+      refundDue: false,
+      refundSentAt: new Date(),
+      refundSentAmount: escrow.refundedAmount,
+      refundReference: transferReference,
+      refundNote: note,
+    };
+    if (escrow.purchase) {
+      await Purchase.findByIdAndUpdate(escrow.purchase, refundRecord);
+    } else if (escrow.inspection) {
+      await Inspection.findByIdAndUpdate(escrow.inspection, refundRecord);
+    }
 
     await Notification.create({
       user: escrow.buyer,

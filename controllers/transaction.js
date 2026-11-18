@@ -47,13 +47,11 @@ const walletFunding = async (req, res) => {
       { userId: userId.toString(), purpose: "wallet_funding" },
     );
 
-    if (!init || !init.success || !init.data?.authorization_url) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Failed to initialize Paystack transaction.",
-        });
+    if (!init || !init.status || !init.data?.authorization_url) {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to initialize Paystack transaction.",
+      });
     }
 
     return res.json({
@@ -84,20 +82,19 @@ const confirmFundWallet = async (req, res) => {
 
     const verification = await verifyTransaction(reference);
     if (!verification || verification.data.status !== "success") {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Payment not successful or verification failed",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Payment not successful or verification failed",
+      });
     }
 
     // Check metadata ownership
-    const metaUserId = verification.data.metadata?.userId;
+    const meta = verification.data.metadata || {};
+    const metaUserId = meta.userId;
     if (
-      metaUserId &&
-      metaUserId !== userId.toString() &&
-      req.user.role !== "admin"
+      meta.purpose !== "wallet_funding" ||
+      !metaUserId ||
+      (metaUserId !== userId.toString() && req.user.role !== "admin")
     ) {
       return res
         .status(403)
@@ -209,11 +206,9 @@ const verifyWalletFunding = async (req, res) => {
 
     const expectedAmountInKobo = Math.round(transaction.amount * 100);
     if (verification.data.amount !== expectedAmountInKobo) {
-      return res
-        .status(400)
-        .json({
-          message: "Amount mismatch between transaction and Paystack record.",
-        });
+      return res.status(400).json({
+        message: "Amount mismatch between transaction and Paystack record.",
+      });
     }
 
     // Atomic credit with $inc to prevent double-crediting
@@ -344,21 +339,28 @@ const changeTransactionStatus = async (req, res) => {
     }
 
     // Withdrawal: Deducted at request time. If moving to failed/declined from pending, return money ONCE.
-    if (transaction.type === "withdrawal") {
-      if (
-        previousStatus === "pending" &&
-        (status === "failed" || status === "declined")
-      ) {
-        user.balance += transaction.amount;
-        await user.save();
-      } else if (
-        previousStatus === "approved" &&
-        (status === "failed" || status === "declined")
-      ) {
-        // If it was already approved and is now marked failed, refund balance back
-        user.balance += transaction.amount;
-        await user.save();
-      }
+    // if (transaction.type === "withdrawal") {
+    //   if (
+    //     previousStatus === "pending" &&
+    //     (status === "failed" || status === "declined")
+    //   ) {
+    //     user.balance += transaction.amount;
+    //     await user.save();
+    //   } else if (
+    //     previousStatus === "approved" &&
+    //     (status === "failed" || status === "declined")
+    //   ) {
+    //     // If it was already approved and is now marked failed, refund balance back
+    //     user.balance += transaction.amount;
+    //     await user.save();
+    //   }
+    if (
+      transaction.type === "withdrawal" &&
+      ["failed", "declined"].includes(previousStatus)
+    ) {
+      return res.status(400).json({
+        message: "This withdrawal was already declined and the money returned.",
+      });
     } else {
       // Wallet funding / agent payment reversals
       if (
@@ -738,8 +740,18 @@ const requestWithdrawal = async (req, res) => {
     });
 
     // Deduct from agent wallet atomically
-    user.balance -= amount;
-    await user.save();
+    // user.balance -= amount;
+    // await user.save();
+    const usersave = await User.findOneAndUpdate(
+      { _id: userId, role: "agent", balance: { $gte: amount } },
+      { $inc: { balance: -amount } },
+      { new: true },
+    );
+    if (!usersave) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Insufficient wallet balance" });
+    }
 
     await Notification.create({
       user: userId,

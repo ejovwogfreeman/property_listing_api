@@ -66,7 +66,7 @@ register = async (req, res) => {
     });
 
     if (global.io)
-      global.io.emit("notification", {
+      global.io.to("admin").emit("notification", {
         type: "user_registered",
         title: "New Registration",
         message: `${email} registered and needs to verify email.`,
@@ -119,7 +119,7 @@ verifyAccount = async (req, res) => {
     });
 
     if (global.io)
-      global.io.emit("notification", {
+      global.io.to("admin").emit("notification", {
         type: "user_verified",
         title: "New User Verified",
         message: `${email} registered and verified successfully.`,
@@ -174,7 +174,7 @@ resendVerificationCode = async (req, res) => {
 
     // Emit socket notification (optional)
     if (global.io) {
-      global.io.emit("notification", {
+      global.io.to("admin").emit("notification", {
         type: "verification_resent",
         title: "Verification Resent",
         message: `Verification code resent to ${email}.`,
@@ -230,7 +230,7 @@ login = async (req, res) => {
     });
 
     if (global.io)
-      global.io.emit("notification", {
+      global.io.to("admin").emit("notification", {
         type: "user_login",
         title: "User Logged In",
         message: `${user.name} logged in.`,
@@ -324,7 +324,7 @@ login = async (req, res) => {
 
 //       // 🔔 Emit socket notification
 //       if (global.io) {
-//         global.io.emit("notification", {
+//         global.io.to("admin").emit("notification", {
 //           type: "google_register",
 //           title: "Google Registration",
 //           message: `${name} joined via Google. Verification email sent.`,
@@ -381,7 +381,7 @@ login = async (req, res) => {
 
 //       // 🔔 Emit real-time socket message
 //       if (global.io) {
-//         global.io.emit("notification", {
+//         global.io.to("admin").emit("notification", {
 //           type: "google_login",
 //           title: "Google Login",
 //           message: `${user.name} logged in via Google.`,
@@ -480,7 +480,7 @@ googleAuth = async (req, res) => {
 
       // 🔔 Emit socket notification
       if (global.io) {
-        global.io.emit("notification", {
+        global.io.to("admin").emit("notification", {
           type: "google_register",
           title: "Google Registration",
           message: `${name} joined via Google as an ${assignedRole}. Verification email sent.`,
@@ -538,7 +538,7 @@ googleAuth = async (req, res) => {
 
       // 🔔 Emit real-time socket message
       if (global.io) {
-        global.io.emit("notification", {
+        global.io.to("admin").emit("notification", {
           type: "google_login",
           title: "Google Login",
           message: `${user.name} logged in via Google.`,
