@@ -237,10 +237,12 @@ const changeEscrowStatus = async (req, res) => {
       if (escrow.inspection) {
         await Inspection.findByIdAndUpdate(escrow.inspection, {
           feeReleased: true,
+          feeReleasedAt: new Date(),
         });
       } else if (escrow.purchase) {
         await Purchase.findByIdAndUpdate(escrow.purchase, {
           feeReleased: true,
+          feeReleasedAt: new Date(),
         });
       }
 
@@ -300,10 +302,12 @@ const changeEscrowStatus = async (req, res) => {
       if (escrow.inspection) {
         await Inspection.findByIdAndUpdate(escrow.inspection, {
           feeReleased: false,
+          feeReleasedAt: null,
         });
       } else if (escrow.purchase) {
         await Purchase.findByIdAndUpdate(escrow.purchase, {
           feeReleased: false,
+          feeReleasedAt: null,
         });
       }
 
@@ -370,6 +374,7 @@ const approveEscrowRefund = async (req, res) => {
         holdsProperty: false,
         refundDue: true,
         refundAmount: escrow.amount,
+        cancelledAt: new Date(),
         feeReleased: false,
       });
     } else if (escrow.inspection) {
@@ -377,6 +382,7 @@ const approveEscrowRefund = async (req, res) => {
         status: "inspection_cancelled",
         refundDue: true,
         refundAmount: escrow.amount,
+        cancelledAt: new Date(),
         feeReleased: false,
       });
     } else if (escrow.property && escrow.buyer) {
@@ -388,6 +394,7 @@ const approveEscrowRefund = async (req, res) => {
             holdsProperty: false,
             refundDue: true,
             refundAmount: escrow.amount,
+            cancelledAt: new Date(),
             feeReleased: false,
           },
         );
@@ -398,6 +405,7 @@ const approveEscrowRefund = async (req, res) => {
             status: "inspection_cancelled",
             refundDue: true,
             refundAmount: escrow.amount,
+            cancelledAt: new Date(),
             feeReleased: false,
           },
         );

@@ -57,6 +57,8 @@ const InspectionSchema = new Schema(
     scheduledAt: { type: Date },
     confirmedAt: { type: Date },
     completedAt: { type: Date },
+    feeReleasedAt: { type: Date },
+    cancelledAt: { type: Date },
   },
   { timestamps: true },
 );

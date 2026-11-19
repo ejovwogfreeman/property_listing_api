@@ -613,6 +613,7 @@ const rejectPurchasePayment = async (req, res) => {
           holdsProperty: false, // Release property lock
           refundDue: true,
           refundAmount: purchase.paidAmount || purchase.price,
+          cancelledAt: new Date(),
         },
       },
       { new: true },

@@ -539,6 +539,7 @@ const rejectInspectionPayment = async (req, res) => {
           status: "inspection_cancelled",
           refundDue: true,
           refundAmount: inspection.paidAmount || inspection.fee,
+          cancelledAt: new Date(),
         },
       },
       { new: true },
