@@ -3,6 +3,29 @@ const User = require("../models/user");
 const Notification = require("../models/notification");
 const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 
+const Purchase = require("../models/purchase");
+
+// A buyer has paid (or their payment is under review) for these
+const TAKEN_STATUSES = [
+  "property_payment_made",
+  "handover_requested",
+  "handover_scheduled",
+  "handover_rescheduled",
+  "handover_confirmed",
+  "handover_completed",
+  "funds_released",
+];
+
+// Ids of properties another buyer can no longer pay for
+const getTakenPropertyIds = async (propertyIds) => {
+  const filter = {
+    $or: [{ holdsProperty: true }, { status: { $in: TAKEN_STATUSES } }],
+  };
+  if (propertyIds) filter.property = { $in: propertyIds };
+  const ids = await Purchase.distinct("property", filter);
+  return new Set(ids.map((id) => id.toString()));
+};
+
 /**
  * Helper function to sanitize/filter internal property fields for non-owners/non-admins
  */
@@ -170,9 +193,11 @@ const getAllProperties = async (req, res) => {
     const userId = req.user?._id;
     const userRole = req.user?.role;
 
-    const sanitizedProps = props.map((p) =>
-      sanitizePropertyForUser(p, userId, userRole),
-    );
+    const taken = await getTakenPropertyIds();
+    const sanitizedProps = props.map((p) => ({
+      ...sanitizePropertyForUser(p, userId, userRole),
+      isTaken: taken.has(p._id.toString()),
+    }));
 
     res.json({ success: true, properties: sanitizedProps });
   } catch (err) {
@@ -194,9 +219,11 @@ const getAgentProperties = async (req, res) => {
     const userId = req.user?._id;
     const userRole = req.user?.role;
 
-    const sanitizedProps = props.map((p) =>
-      sanitizePropertyForUser(p, userId, userRole),
-    );
+    const taken = await getTakenPropertyIds(props.map((p) => p._id));
+    const sanitizedProps = props.map((p) => ({
+      ...sanitizePropertyForUser(p, userId, userRole),
+      isTaken: taken.has(p._id.toString()),
+    }));
 
     res.json({
       success: true,
@@ -257,7 +284,11 @@ const getProperty = async (req, res) => {
 
     const userId = req.user?._id;
     const userRole = req.user?.role;
-    const sanitizedProp = sanitizePropertyForUser(prop, userId, userRole);
+    const taken = await getTakenPropertyIds([prop._id]);
+    const sanitizedProp = {
+      ...sanitizePropertyForUser(prop, userId, userRole),
+      isTaken: taken.has(prop._id.toString()),
+    };
 
     res.json({ success: true, property: sanitizedProp });
   } catch (err) {

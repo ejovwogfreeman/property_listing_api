@@ -128,6 +128,11 @@ const socketHandler = (io, onlineUsers) => {
         // 1. Join a room named after the user ID (supports multi-tab/multi-device)
         socket.join(userIdStr);
 
+        // admins also join one shared room for admin-only alerts
+        if (socket.user?.role === "admin") {
+          socket.join("admin");
+        }
+
         // 2. Track online users map
         if (onlineUsers) {
           onlineUsers.set(userIdStr, socket.id);

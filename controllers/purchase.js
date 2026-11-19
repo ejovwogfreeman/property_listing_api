@@ -351,6 +351,15 @@ const processPurchasePaymentConfirmation = async (purchase, reference) => {
       { new: true },
     );
     // notify admins: "Second payment for a property that is already taken. Reject and refund."
+    const admins = await User.find({ role: "admin" });
+    for (const admin of admins) {
+      await Notification.create({
+        user: admin._id,
+        title: "Second Payment For A Taken Property",
+        message: `A buyer paid for "${purchase.property?.title}" while another buyer's payment already holds it. Reject this payment and refund the buyer.`,
+        meta: { purchaseId: purchase._id },
+      });
+    }
   }
 
   if (!updated) {
@@ -583,11 +592,28 @@ const rejectPurchasePayment = async (req, res) => {
       });
     }
 
-    purchase.status = "purchase_cancelled";
-    purchase.holdsProperty = false; // Release property lock
-    purchase.refundDue = true;
-    purchase.refundAmount = purchase.paidAmount || purchase.price;
-    await purchase.save();
+    const claimed = await Purchase.findOneAndUpdate(
+      { _id: id, status: "property_payment_review" },
+      {
+        $set: {
+          status: "purchase_cancelled",
+          holdsProperty: false, // Release property lock
+          refundDue: true,
+          refundAmount: purchase.paidAmount || purchase.price,
+        },
+      },
+      { new: true },
+    );
+    if (!claimed) {
+      return res.status(400).json({
+        success: false,
+        message: "Purchase is no longer under payment review.",
+      });
+    }
+    purchase.status = claimed.status;
+    purchase.holdsProperty = false;
+    purchase.refundDue = claimed.refundDue;
+    purchase.refundAmount = claimed.refundAmount;
 
     const sellerId = purchase.owner?._id || purchase.owner;
 
@@ -634,19 +660,26 @@ const markPurchaseRefundSent = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Purchase not found" });
 
-    if (!purchase.refundDue) {
+    const claimed = await Purchase.findOneAndUpdate(
+      { _id: id, refundDue: true },
+      {
+        $set: {
+          refundDue: false,
+          refundSentAt: new Date(),
+          refundSentAmount: Number(amountSent) || purchase.refundAmount,
+          refundReference: transferReference,
+          refundNote: note,
+        },
+      },
+      { new: true },
+    );
+    if (!claimed) {
       return res.status(400).json({
         success: false,
         message: "No pending refund due for this purchase.",
       });
     }
-
-    purchase.refundDue = false;
-    purchase.refundSentAt = new Date();
-    purchase.refundSentAmount = amountSent || purchase.refundAmount;
-    purchase.refundReference = transferReference;
-    purchase.refundNote = note;
-    await purchase.save();
+    purchase.refundSentAmount = claimed.refundSentAmount;
 
     await Notification.create({
       user: purchase.buyer,
@@ -972,17 +1005,15 @@ const changePurchaseStatus = async (req, res) => {
         .json({ success: false, message: "Admin access required." });
     }
 
+    // Money steps have their own endpoints, which keep escrow and balances
+    // right: approve/reject payment (verify-payment, reject-payment), release
+    // (PATCH /escrow/status), refund (refund-approval / refund-complete)
     const allowedStatuses = [
-      "none",
-      "property_payment_review",
-      "property_payment_made",
       "handover_requested",
       "handover_scheduled",
       "handover_rescheduled",
       "handover_confirmed",
       "handover_completed",
-      // "funds_released",
-      // "purchase_cancelled",
     ];
 
     if (!allowedStatuses.includes(status)) {
@@ -1189,6 +1220,7 @@ const getAllPurchases = async (req, res) => {
 };
 
 module.exports = {
+  processPurchasePaymentConfirmation,
   requestPurchase,
   initializePurchasePayment,
   confirmPurchasePaymentCallback,

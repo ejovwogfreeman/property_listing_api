@@ -10,9 +10,8 @@ const {
   verifyTransaction,
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
-// const {
-//   processInspectionPaymentConfirmation,
-// } = require("./controllers/purchase.js");
+const { processPurchasePaymentConfirmation } = require("./purchase");
+const { recordWalletFunding } = require("./transaction");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -532,10 +531,26 @@ const rejectInspectionPayment = async (req, res) => {
       });
     }
 
-    inspection.status = "inspection_cancelled";
-    inspection.refundDue = true;
-    inspection.refundAmount = inspection.paidAmount || inspection.fee;
-    await inspection.save();
+    const claimed = await Inspection.findOneAndUpdate(
+      { _id: id, status: "inspection_payment_review" },
+      {
+        $set: {
+          status: "inspection_cancelled",
+          refundDue: true,
+          refundAmount: inspection.paidAmount || inspection.fee,
+        },
+      },
+      { new: true },
+    );
+    if (!claimed) {
+      return res.status(400).json({
+        success: false,
+        message: "Inspection is no longer under payment review.",
+      });
+    }
+    inspection.status = claimed.status;
+    inspection.refundDue = claimed.refundDue;
+    inspection.refundAmount = claimed.refundAmount;
 
     const agentId = inspection.owner?._id || inspection.owner;
 
@@ -581,19 +596,26 @@ const markInspectionRefundSent = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Inspection not found" });
 
-    if (!inspection.refundDue) {
+    const claimed = await Inspection.findOneAndUpdate(
+      { _id: id, refundDue: true },
+      {
+        $set: {
+          refundDue: false,
+          refundSentAt: new Date(),
+          refundSentAmount: Number(amountSent) || inspection.refundAmount,
+          refundReference: transferReference,
+          refundNote: note,
+        },
+      },
+      { new: true },
+    );
+    if (!claimed) {
       return res.status(400).json({
         success: false,
         message: "No pending refund due for this inspection.",
       });
     }
-
-    inspection.refundDue = false;
-    inspection.refundSentAt = new Date();
-    inspection.refundSentAmount = amountSent || inspection.refundAmount;
-    inspection.refundReference = transferReference;
-    inspection.refundNote = note;
-    await inspection.save();
+    inspection.refundSentAmount = claimed.refundSentAmount;
 
     await Notification.create({
       user: inspection.user,
@@ -968,16 +990,11 @@ const changeInspectionStatus = async (req, res) => {
         .json({ success: false, message: "Admin access required." });
     }
 
+    // Money steps have their own endpoints (see changePurchaseStatus)
     const allowedStatuses = [
-      "none",
-      "inspection_requested",
-      "inspection_initialized",
-      "inspection_payment_review",
-      "inspection_paid",
       "inspection_scheduled",
       "inspection_confirmed",
       "inspection_completed",
-      "inspection_cancelled",
     ];
 
     if (!allowedStatuses.includes(status)) {

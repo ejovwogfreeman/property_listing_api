@@ -69,10 +69,178 @@ const walletFunding = async (req, res) => {
 // ---------------------------
 // 1️⃣.1 Confirm Wallet Funding (User callback / Webhook helper)
 // ---------------------------
+// const confirmFundWallet = async (req, res) => {
+//   try {
+//     const { reference } = req.body;
+//     const userId = req.user._id;
+
+//     if (!reference) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Reference is required" });
+//     }
+
+//     const verification = await verifyTransaction(reference);
+//     if (!verification || verification.data.status !== "success") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Payment not successful or verification failed",
+//       });
+//     }
+
+//     // Check metadata ownership
+//     const meta = verification.data.metadata || {};
+//     const metaUserId = meta.userId;
+//     if (
+//       meta.purpose !== "wallet_funding" ||
+//       !metaUserId ||
+//       (metaUserId !== userId.toString() && req.user.role !== "admin")
+//     ) {
+//       return res
+//         .status(403)
+//         .json({ success: false, message: "Unauthorized transaction owner" });
+//     }
+
+//     const targetUserId = metaUserId || userId;
+//     const paidAmount = verification.data.amount / 100;
+
+//     // Idempotency: check if transaction already exists
+//     let transaction = await Transaction.findOne({ reference });
+//     if (transaction) {
+//       return res.json({
+//         success: true,
+//         status: transaction.status,
+//         message: "Transaction already recorded.",
+//         transaction,
+//       });
+//     }
+
+//     // Create pending transaction awaiting admin approval
+//     try {
+//       transaction = await Transaction.create({
+//         from: targetUserId,
+//         to: targetUserId,
+//         amount: paidAmount,
+//         type: "wallet_funding",
+//         status: "pending",
+//         reference,
+//       });
+//     } catch (createErr) {
+//       if (createErr.code === 11000) {
+//         transaction = await Transaction.findOne({ reference });
+//         return res.json({
+//           success: true,
+//           status: transaction.status,
+//           transaction,
+//         });
+//       }
+//       throw createErr;
+//     }
+
+//     await Notification.create({
+//       user: targetUserId,
+//       title: "Wallet Funding Payment Received",
+//       message: `Your payment of ₦${paidAmount} was received and is pending admin approval.`,
+//       meta: { transactionId: transaction._id },
+//     });
+
+//     notifyUser(targetUserId, "notification", {
+//       type: "wallet_funding_pending",
+//       title: "Wallet Funding Pending Review",
+//       message: `Your wallet funding payment is awaiting admin approval.`,
+//       transactionId: transaction._id,
+//     });
+
+//     return res.json({
+//       success: true,
+//       status: "pending",
+//       message: "Payment verified and submitted for admin approval.",
+//       transaction,
+//     });
+//   } catch (err) {
+//     console.error("confirmFundWallet error:", err);
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+// Paystack may return metadata as an object or as a JSON string
+const parseMetadata = (metadata) => {
+  if (!metadata) return {};
+  if (typeof metadata === "string") {
+    try {
+      return JSON.parse(metadata);
+    } catch {
+      return {};
+    }
+  }
+  return metadata;
+};
+
+// Records a successful Paystack wallet funding as a pending Transaction for
+// the admin to approve. Used by confirmFundWallet and the Paystack webhook.
+// requesterId: the logged-in user (null for the webhook or an admin).
+// Throws an error with .status for "not a wallet funding" / "not yours".
+const recordWalletFunding = async (reference, paystackData, requesterId) => {
+  const meta = parseMetadata(paystackData.metadata);
+  if (meta.purpose !== "wallet_funding" || !meta.userId) {
+    const err = new Error("This payment is not a wallet funding.");
+    err.status = 400;
+    throw err;
+  }
+  if (requesterId && meta.userId !== requesterId.toString()) {
+    const err = new Error("Unauthorized transaction owner");
+    err.status = 403;
+    throw err;
+  }
+
+  // Idempotency: callback and webhook can both arrive
+  const existing = await Transaction.findOne({ reference });
+  if (existing) return { transaction: existing, created: false };
+
+  const paidAmount = paystackData.amount / 100;
+  let transaction;
+  try {
+    transaction = await Transaction.create({
+      from: meta.userId,
+      to: meta.userId,
+      amount: paidAmount,
+      type: "wallet_funding",
+      status: "pending",
+      reference,
+    });
+  } catch (createErr) {
+    if (createErr.code === 11000) {
+      return {
+        transaction: await Transaction.findOne({ reference }),
+        created: false,
+      };
+    }
+    throw createErr;
+  }
+
+  await Notification.create({
+    user: meta.userId,
+    title: "Wallet Funding Payment Received",
+    message: `Your payment of ₦${paidAmount} was received and is pending admin approval.`,
+    meta: { transactionId: transaction._id },
+  });
+
+  notifyUser(meta.userId, "notification", {
+    type: "wallet_funding_pending",
+    title: "Wallet Funding Pending Review",
+    message: `Your wallet funding payment is awaiting admin approval.`,
+    transactionId: transaction._id,
+  });
+
+  return { transaction, created: true };
+};
+
+// ---------------------------
+// 1️⃣.1 Confirm Wallet Funding (agent's return from Paystack)
+// ---------------------------
 const confirmFundWallet = async (req, res) => {
   try {
     const { reference } = req.body;
-    const userId = req.user._id;
 
     if (!reference) {
       return res
@@ -80,7 +248,15 @@ const confirmFundWallet = async (req, res) => {
         .json({ success: false, message: "Reference is required" });
     }
 
-    const verification = await verifyTransaction(reference);
+    let verification;
+    try {
+      verification = await verifyTransaction(reference);
+    } catch (netErr) {
+      // Paystack unreachable: the webhook will record it
+      console.error("Paystack network error during wallet confirm:", netErr);
+      return res.json({ success: true, status: "processing" });
+    }
+
     if (!verification || verification.data.status !== "success") {
       return res.status(400).json({
         success: false,
@@ -88,76 +264,27 @@ const confirmFundWallet = async (req, res) => {
       });
     }
 
-    // Check metadata ownership
-    const meta = verification.data.metadata || {};
-    const metaUserId = meta.userId;
-    if (
-      meta.purpose !== "wallet_funding" ||
-      !metaUserId ||
-      (metaUserId !== userId.toString() && req.user.role !== "admin")
-    ) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Unauthorized transaction owner" });
-    }
-
-    const targetUserId = metaUserId || userId;
-    const paidAmount = verification.data.amount / 100;
-
-    // Idempotency: check if transaction already exists
-    let transaction = await Transaction.findOne({ reference });
-    if (transaction) {
-      return res.json({
-        success: true,
-        status: transaction.status,
-        message: "Transaction already recorded.",
-        transaction,
-      });
-    }
-
-    // Create pending transaction awaiting admin approval
-    try {
-      transaction = await Transaction.create({
-        from: targetUserId,
-        to: targetUserId,
-        amount: paidAmount,
-        type: "wallet_funding",
-        status: "pending",
-        reference,
-      });
-    } catch (createErr) {
-      if (createErr.code === 11000) {
-        transaction = await Transaction.findOne({ reference });
-        return res.json({
-          success: true,
-          status: transaction.status,
-          transaction,
-        });
-      }
-      throw createErr;
-    }
-
-    await Notification.create({
-      user: targetUserId,
-      title: "Wallet Funding Payment Received",
-      message: `Your payment of ₦${paidAmount} was received and is pending admin approval.`,
-      meta: { transactionId: transaction._id },
-    });
-
-    notifyUser(targetUserId, "notification", {
-      type: "wallet_funding_pending",
-      title: "Wallet Funding Pending Review",
-      message: `Your wallet funding payment is awaiting admin approval.`,
-      transactionId: transaction._id,
-    });
+    const requesterId = req.user.role === "admin" ? null : req.user._id;
+    const { transaction, created } = await recordWalletFunding(
+      reference,
+      verification.data,
+      requesterId,
+    );
 
     return res.json({
       success: true,
-      status: "pending",
-      message: "Payment verified and submitted for admin approval.",
+      status: transaction.status,
+      message: created
+        ? "Payment verified and submitted for admin approval."
+        : "Transaction already recorded.",
       transaction,
     });
   } catch (err) {
+    if (err.status) {
+      return res
+        .status(err.status)
+        .json({ success: false, message: err.message });
+    }
     console.error("confirmFundWallet error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -321,65 +448,76 @@ const changeTransactionStatus = async (req, res) => {
   try {
     const { transactionId, status } = req.body;
 
+    if (!["pending", "approved", "declined", "failed"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
     const transaction = await Transaction.findById(transactionId);
     if (!transaction) {
       return res.status(404).json({ message: "Transaction not found" });
     }
 
-    if (!["pending", "approved", "declined", "failed"].includes(status)) {
-      return res.status(400).json({ message: "Invalid status" });
-    }
-
     const previousStatus = transaction.status;
-    const targetUserId = transaction.to || transaction.from;
-    const user = await User.findById(targetUserId);
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Withdrawal: Deducted at request time. If moving to failed/declined from pending, return money ONCE.
-    // if (transaction.type === "withdrawal") {
-    //   if (
-    //     previousStatus === "pending" &&
-    //     (status === "failed" || status === "declined")
-    //   ) {
-    //     user.balance += transaction.amount;
-    //     await user.save();
-    //   } else if (
-    //     previousStatus === "approved" &&
-    //     (status === "failed" || status === "declined")
-    //   ) {
-    //     // If it was already approved and is now marked failed, refund balance back
-    //     user.balance += transaction.amount;
-    //     await user.save();
-    //   }
-    if (
-      transaction.type === "withdrawal" &&
-      ["failed", "declined"].includes(previousStatus)
-    ) {
-      return res.status(400).json({
-        message: "This withdrawal was already declined and the money returned.",
+    if (previousStatus === status) {
+      return res.json({
+        success: true,
+        message: `Transaction is already ${status}`,
+        transaction,
       });
-    } else {
-      // Wallet funding / agent payment reversals
-      if (
-        previousStatus === "approved" &&
-        (status === "pending" || status === "failed" || status === "declined")
-      ) {
-        user.balance -= transaction.amount;
-        await user.save();
-      } else if (previousStatus === "pending" && status === "approved") {
-        user.balance += transaction.amount;
-        transaction.approvedAt = new Date();
-        await user.save();
-      }
     }
 
-    transaction.status = status;
-    await transaction.save();
+    // A declined or failed withdrawal has already given the money back, so
+    // it can't be changed again (that would pay it back a second time)
+    const FINAL = ["failed", "declined"];
+    if (transaction.type === "withdrawal" && FINAL.includes(previousStatus)) {
+      return res.status(400).json({
+        message:
+          "This withdrawal was already declined and the money returned to the agent.",
+      });
+    }
 
-    notifyUser(user._id, "notification", {
+    // Claim the change atomically so two clicks can't both apply it
+    const claimed = await Transaction.findOneAndUpdate(
+      { _id: transaction._id, status: previousStatus },
+      {
+        $set: {
+          status,
+          ...(status === "approved" ? { approvedAt: new Date() } : {}),
+        },
+      },
+      { new: true },
+    );
+    if (!claimed) {
+      return res.status(409).json({
+        message:
+          "This transaction was just changed by someone else. Refresh and try again.",
+      });
+    }
+
+    const targetUserId = transaction.to || transaction.from;
+
+    // How much the user's balance moves
+    let delta = 0;
+    if (transaction.type === "withdrawal") {
+      // The amount was taken at request time. Approving changes nothing
+      // (the admin pays offline); declining or failing gives it back once.
+      if (FINAL.includes(status)) delta = transaction.amount;
+    } else if (previousStatus === "approved") {
+      // wallet funding / agent payment reversed
+      delta = -transaction.amount;
+    } else if (status === "approved") {
+      delta = transaction.amount;
+    }
+
+    const user = delta
+      ? await User.findByIdAndUpdate(
+          targetUserId,
+          { $inc: { balance: delta } },
+          { new: true },
+        )
+      : await User.findById(targetUserId);
+
+    notifyUser(targetUserId, "notification", {
       type: "transaction_status_changed",
       title: "Transaction Status Updated",
       message: `Your ${transaction.type} status has been updated to ${status}.`,
@@ -390,8 +528,8 @@ const changeTransactionStatus = async (req, res) => {
     return res.json({
       success: true,
       message: `Transaction updated to ${status}`,
-      transaction,
-      balance: user.balance,
+      transaction: claimed,
+      balance: user?.balance,
     });
   } catch (err) {
     console.error("changeTransactionStatus error:", err);
@@ -561,7 +699,7 @@ const getAgentPurchasesAndInspections = async (req, res) => {
     const [purchases, inspections] = await Promise.all([
       Purchase.find({
         owner: agentId,
-        status: { $nin: ["none", "property_payment_review"] },
+        status: { $nin: ["none"] },
       })
         .populate("property", "title price address images")
         .populate("buyer", "name email phoneNumber profilePicture")
@@ -716,41 +854,82 @@ const requestWithdrawal = async (req, res) => {
       });
     }
 
-    if (user.balance < amount) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Insufficient wallet balance" });
-    }
+    // if (user.balance < amount) {
+    //   return res
+    //     .status(400)
+    //     .json({ success: false, message: "Insufficient wallet balance" });
+    // }
 
-    const reference = crypto.randomBytes(16).toString("hex");
+    // const reference = crypto.randomBytes(16).toString("hex");
 
-    const transaction = await Transaction.create({
-      from: userId,
-      to: userId,
-      amount,
-      type: "withdrawal",
-      status: "pending",
-      reference,
-      bankDetails: {
-        bankName: bankDetails.bankName,
-        bankCode: bankDetails.bankCode || "",
-        accountNumber: bankDetails.accountNumber,
-        accountName: bankDetails.accountName || user.name,
-      },
-    });
+    // const transaction = await Transaction.create({
+    //   from: userId,
+    //   to: userId,
+    //   amount,
+    //   type: "withdrawal",
+    //   status: "pending",
+    //   reference,
+    //   bankDetails: {
+    //     bankName: bankDetails.bankName,
+    //     bankCode: bankDetails.bankCode || "",
+    //     accountNumber: bankDetails.accountNumber,
+    //     accountName: bankDetails.accountName || user.name,
+    //   },
+    // });
 
-    // Deduct from agent wallet atomically
-    // user.balance -= amount;
-    // await user.save();
+    // // Deduct from agent wallet atomically
+    // // user.balance -= amount;
+    // // await user.save();
+    // const usersave = await User.findOneAndUpdate(
+    //   { _id: userId, role: "agent", balance: { $gte: amount } },
+    //   { $inc: { balance: -amount } },
+    //   { new: true },
+    // );
+    // if (!usersave) {
+    //   return res
+    //     .status(400)
+    //     .json({ success: false, message: "Insufficient wallet balance" });
+    // }
+
+    // Check and take the money in one step, BEFORE recording the withdrawal
+
     const usersave = await User.findOneAndUpdate(
-      { _id: userId, role: "agent", balance: { $gte: amount } },
-      { $inc: { balance: -amount } },
+      { _id: userId, role: "agent", balance: { $gte: Number(amount) } },
+      { $inc: { balance: -Number(amount) } },
       { new: true },
     );
     if (!usersave) {
       return res
         .status(400)
         .json({ success: false, message: "Insufficient wallet balance" });
+    }
+    // the notification and response below read user.balance
+    user.balance = usersave.balance;
+
+    const reference = crypto.randomBytes(16).toString("hex");
+
+    let transaction;
+    try {
+      transaction = await Transaction.create({
+        from: userId,
+        to: userId,
+        amount,
+        type: "withdrawal",
+        status: "pending",
+        reference,
+        bankDetails: {
+          bankName: bankDetails.bankName,
+          bankCode: bankDetails.bankCode || "",
+          accountNumber: bankDetails.accountNumber,
+          accountName: bankDetails.accountName || user.name,
+        },
+      });
+    } catch (createErr) {
+      // put the money back if the withdrawal couldn't be recorded
+      await User.findByIdAndUpdate(userId, {
+        $inc: { balance: Number(amount) },
+      });
+      throw createErr;
     }
 
     await Notification.create({
@@ -781,6 +960,7 @@ const requestWithdrawal = async (req, res) => {
 };
 
 module.exports = {
+  recordWalletFunding,
   walletFunding,
   confirmFundWallet,
   verifyWalletFunding,

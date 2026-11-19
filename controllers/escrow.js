@@ -202,9 +202,12 @@ const changeEscrowStatus = async (req, res) => {
           .status(400)
           .json({ success: false, message: "Escrow was already released." });
       }
-      await User.findByIdAndUpdate(seller._id, {
-        $inc: { balance: payoutAmount },
-      });
+      const credited = await User.findByIdAndUpdate(
+        seller._id,
+        { $inc: { balance: payoutAmount } },
+        { new: true },
+      );
+      seller.balance = credited.balance;
 
       await Transaction.create({
         from: adminId,
@@ -249,11 +252,31 @@ const changeEscrowStatus = async (req, res) => {
           : "Funds released by admin");
     }
 
+    // if (previousStatus === "released" && status !== "released") {
+    //   const seller = await User.findById(escrow.seller);
+    //   if (seller) {
+    //     seller.balance -= payoutAmount;
+    //     await seller.save();
+
     if (previousStatus === "released" && status !== "released") {
+      // Claim it first so two clicks can't both take the money back
+      const reclaimed = await Escrow.findOneAndUpdate(
+        { _id: escrow._id, status: "released" },
+        { $set: { status } },
+      );
+      if (!reclaimed) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Escrow is no longer released." });
+      }
       const seller = await User.findById(escrow.seller);
       if (seller) {
-        seller.balance -= payoutAmount;
-        await seller.save();
+        const debited = await User.findByIdAndUpdate(
+          seller._id,
+          { $inc: { balance: -payoutAmount } },
+          { new: true },
+        );
+        seller.balance = debited.balance;
 
         await Transaction.create({
           from: adminId,

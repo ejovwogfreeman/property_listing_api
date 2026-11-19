@@ -38,7 +38,7 @@ const addToFavorites = async (req, res) => {
     });
 
     if (global.io) {
-      global.io.to("userId.toString()").emit("notification", {
+      global.io.to(userId.toString()).emit("notification", {
         type: "favorite_added",
         title: "Added to Favorites",
         message: `"${property.title}" added to your favorites.`,
@@ -79,7 +79,7 @@ const removeFromFavorites = async (req, res) => {
     });
 
     if (global.io) {
-      global.io.to("userId.toString()").emit("notification", {
+      global.io.to(userId.toString()).emit("notification", {
         type: "favorite_removed",
         title: "Removed from Favorites",
         message: `"${property ? property.title : "Property"}" removed from your favorites.`,
@@ -108,7 +108,7 @@ const clearFavorites = async (req, res) => {
     });
 
     if (global.io) {
-      global.io.to("userId.toString()").emit("notification", {
+      global.io.to(userId.toString()).emit("notification", {
         type: "favorites_cleared",
         title: "Favorites Cleared",
         message: "All items have been removed from your favorites.",

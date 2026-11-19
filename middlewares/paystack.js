@@ -8,11 +8,13 @@ exports.initializeTransaction = async (
   amount,
   reference,
   callback_url,
+  metadata,
 ) => {
   try {
     const res = await axios.post(
       "https://api.paystack.co/transaction/initialize",
-      { email, amount, reference, callback_url },
+      { email, amount, reference, callback_url, metadata },
+
       {
         headers: {
           Authorization: `Bearer ${PAYSTACK_SECRET}`,
