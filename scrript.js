@@ -1,42 +1,44 @@
-// One-off: create the missing escrow_refund ledger records for escrows that
-// were refunded during the 12 Nov bug.
-// Run once with: node backfill-refund-transactions.js
+// One-off: set every property's platform fee (escrowFee) from the agreed rates.
+// Run with: node backfill-platform-fees.js         (list only)
+//           node backfill-platform-fees.js --apply (list and update)
 require("dotenv").config();
 const mongoose = require("mongoose");
-const Escrow = require("./models/escrow");
-const Transaction = require("./models/transaction");
-const User = require("./models/user");
+const Property = require("./models/property");
+const { calculatePlatformFee } = require("./middlewares/platformFee");
 
 (async () => {
   await mongoose.connect(process.env.MONGO_URI);
 
-  const admin = await User.findOne({ role: "admin" });
-  const refunded = await Escrow.find({ status: "refunded" }).lean();
-  let created = 0;
+  const props = await Property.find(
+    {},
+    "title price listingType escrowFee",
+  ).lean();
+  const changes = props
+    .map((p) => ({
+      id: String(p._id),
+      title: p.title,
+      listingType: p.listingType,
+      price: p.price,
+      oldFee: p.escrowFee ?? null,
+      newFee: calculatePlatformFee(p.price, p.listingType),
+    }))
+    .filter((c) => c.oldFee !== c.newFee);
 
-  for (const escrow of refunded) {
-    const prefix = escrow.reference || String(escrow._id);
-    const exists = await Transaction.findOne({
-      type: "escrow_refund",
-      to: escrow.buyer,
-      reference: { $regex: `^${prefix}` },
-    });
-    if (exists) continue;
+  console.table(changes);
 
-    await Transaction.create({
-      from: escrow.releasedBy || admin._id,
-      to: escrow.buyer,
-      amount: escrow.refundedAmount || escrow.amount,
-      type: "escrow_refund",
-      status: "completed",
-      reference: `${prefix}-refund-backfill`,
-    });
-    created++;
+  if (process.argv.includes("--apply")) {
+    for (const c of changes) {
+      // updateOne skips the pre-save hook, so codes and history are untouched
+      await Property.updateOne(
+        { _id: c.id },
+        { $set: { escrowFee: c.newFee } },
+      );
+    }
+    console.log(`Updated ${changes.length} properties`);
+  } else {
+    console.log("List only. Run again with --apply to update them.");
   }
 
-  console.log(
-    `Checked ${refunded.length} refunded escrows, created ${created} records`,
-  );
   await mongoose.disconnect();
 })().catch((err) => {
   console.error(err);

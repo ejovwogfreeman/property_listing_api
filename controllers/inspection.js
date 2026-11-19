@@ -12,6 +12,7 @@ const {
 const crypto = require("crypto");
 const { processPurchasePaymentConfirmation } = require("./purchase");
 const { recordWalletFunding } = require("./transaction");
+const { calculateRefundFee } = require("../middlewares/platformFee");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -585,7 +586,8 @@ const rejectInspectionPayment = async (req, res) => {
 // ---------------------------
 const markInspectionRefundSent = async (req, res) => {
   try {
-    const { id, amountSent, transferReference, note } = req.body;
+    const { id, amountSent, transferReference, note, waiveProcessingFee } =
+      req.body;
     if (!req.user || req.user.role !== "admin") {
       return res.status(403).json({ success: false, message: "Admin only." });
     }
@@ -595,6 +597,13 @@ const markInspectionRefundSent = async (req, res) => {
       return res
         .status(404)
         .json({ success: false, message: "Inspection not found" });
+    // the buyer's refund processing fee, unless the admin waived it
+    const amountPaid =
+      inspection.refundAmount || inspection.paidAmount || inspection.fee;
+    const fee =
+      waiveProcessingFee === true || waiveProcessingFee === "true"
+        ? 0
+        : calculateRefundFee(amountPaid);
 
     const claimed = await Inspection.findOneAndUpdate(
       { _id: id, refundDue: true },
@@ -602,7 +611,9 @@ const markInspectionRefundSent = async (req, res) => {
         $set: {
           refundDue: false,
           refundSentAt: new Date(),
-          refundSentAmount: Number(amountSent) || inspection.refundAmount,
+          // refundSentAmount: Number(amountSent) || inspection.refundAmount,
+          refundSentAmount: Number(amountSent) || amountPaid - fee,
+          refundProcessingFee: fee,
           refundReference: transferReference,
           refundNote: note,
         },
@@ -620,7 +631,8 @@ const markInspectionRefundSent = async (req, res) => {
     await Notification.create({
       user: inspection.user,
       title: "Inspection Refund Sent",
-      message: `Your offline refund of ${inspection.refundSentAmount} has been sent. Reference: ${transferReference || "N/A"}`,
+      // message: `Your offline refund of ${inspection.refundSentAmount} has been sent. Reference: ${transferReference || "N/A"}`,
+      message: `Your refund of ₦${Number(inspection.refundSentAmount).toLocaleString()} has been sent${fee ? ` (a ₦${fee.toLocaleString()} processing fee was deducted)` : ""}. Reference: ${transferReference || "N/A"}`,
       meta: { inspectionId: inspection._id },
     });
 
@@ -1055,7 +1067,10 @@ const getInspectionDetails = async (req, res) => {
     const { inspectionId } = req.params;
 
     const inspection = await Inspection.findById(inspectionId)
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge listingType address images",
+      )
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("user", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture");
@@ -1078,7 +1093,10 @@ const getUserInspections = async (req, res) => {
     const userId = req.user._id;
 
     const inspections = await Inspection.find({ user: userId })
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge listingType address images",
+      )
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
       .sort({ createdAt: -1 });
@@ -1113,7 +1131,10 @@ const getAgentInspections = async (req, res) => {
         $nin: ["none", "inspection_requested", "inspection_initialized"],
       },
     })
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge listingType address images",
+      )
       .populate("user", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")
@@ -1146,7 +1167,10 @@ const getAllInspections = async (req, res) => {
         $nin: ["none", "inspection_requested", "inspection_initialized"],
       },
     })
-      .populate("property", "title price address images")
+      .populate(
+        "property",
+        "title price escrowFee serviceCharge listingType address images",
+      )
       .populate("user", "name email phoneNumber profilePicture")
       .populate("owner", "name email phoneNumber profilePicture")
       .populate("escrowHeldBy", "name email phoneNumber profilePicture")

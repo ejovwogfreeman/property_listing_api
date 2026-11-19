@@ -5,6 +5,7 @@ const Inspection = require("../models/inspection");
 const Purchase = require("../models/purchase");
 const Transaction = require("../models/transaction");
 const { Dispute } = require("../models/dispute");
+const { calculateRefundFee } = require("../middlewares/platformFee");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -451,7 +452,10 @@ const approveEscrowRefund = async (req, res) => {
 const completeEscrowRefund = async (req, res) => {
   try {
     const { id } = req.params;
-    const { amountSent, transferReference, note } = req.body;
+    // const { amountSent, transferReference, note } = req.body;
+    const { amountSent, transferReference, note, waiveProcessingFee } =
+      req.body;
+
     const adminId = req.user._id;
 
     if (!req.user || req.user.role !== "admin") {
@@ -461,13 +465,23 @@ const completeEscrowRefund = async (req, res) => {
     }
 
     // Atomically claim from refund_pending to refunded
+
+    // the buyer's refund processing fee, unless the admin waived it
+    const pending = await Escrow.findById(id);
+    const fee =
+      waiveProcessingFee === true || waiveProcessingFee === "true"
+        ? 0
+        : calculateRefundFee(pending?.amount || 0);
+
     const escrow = await Escrow.findOneAndUpdate(
       { _id: id, status: "refund_pending" },
       {
         $set: {
           status: "refunded",
           refundedAt: new Date(),
-          refundedAmount: amountSent || null,
+          // refundedAmount: amountSent || null,
+          refundedAmount: Number(amountSent) || null,
+          refundProcessingFee: fee,
           transferReference,
           refundNote: note,
           releasedAt: new Date(),
@@ -486,7 +500,8 @@ const completeEscrowRefund = async (req, res) => {
     }
 
     if (!escrow.refundedAmount) {
-      escrow.refundedAmount = escrow.amount;
+      // escrow.refundedAmount = escrow.amount;
+      escrow.refundedAmount = escrow.amount - fee;
       await escrow.save();
     }
 
@@ -504,7 +519,10 @@ const completeEscrowRefund = async (req, res) => {
     const refundRecord = {
       refundDue: false,
       refundSentAt: new Date(),
+      // refundSentAmount: escrow.refundedAmount,
+      // refundReference: transferReference,
       refundSentAmount: escrow.refundedAmount,
+      refundProcessingFee: fee,
       refundReference: transferReference,
       refundNote: note,
     };
@@ -517,7 +535,8 @@ const completeEscrowRefund = async (req, res) => {
     await Notification.create({
       user: escrow.buyer,
       title: "Refund Sent",
-      message: `Your offline refund of ${(escrow.refundedAmount || escrow.amount).toLocaleString()} has been sent. Reference: ${transferReference || "N/A"}`,
+      // message: `Your offline refund of ${(escrow.refundedAmount || escrow.amount).toLocaleString()} has been sent. Reference: ${transferReference || "N/A"}`,
+      message: `Your refund of ₦${(escrow.refundedAmount || escrow.amount).toLocaleString()} has been sent${fee ? ` (a ₦${fee.toLocaleString()} processing fee was deducted)` : ""}. Reference: ${transferReference || "N/A"}`,
       meta: { escrowId: escrow._id },
     });
 

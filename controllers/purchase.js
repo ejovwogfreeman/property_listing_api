@@ -9,6 +9,10 @@ const {
   verifyTransaction,
 } = require("../middlewares/paystack");
 const crypto = require("crypto");
+const {
+  calculatePlatformFee,
+  calculateRefundFee,
+} = require("../middlewares/platformFee");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -79,6 +83,14 @@ const requestPurchase = async (req, res) => {
         !existingPurchase.feePaid &&
         existingPurchase.status !== "property_payment_review"
       ) {
+        // the fee or the price may have changed since this unpaid request
+        // was made, so charge the current total
+        const fee = calculatePlatformFee(property.price, property.listingType);
+        existingPurchase.platformFee = fee;
+        existingPurchase.price =
+          property.price + fee + (property.serviceCharge || 0);
+        await existingPurchase.save();
+
         return res.status(200).json({
           success: true,
           resumed: true,
@@ -98,12 +110,13 @@ const requestPurchase = async (req, res) => {
       });
     }
 
+    // worked out here from the price, never from what the agent's form sent
+    const platformFee = calculatePlatformFee(
+      property.price,
+      property.listingType,
+    );
     const totalPrice =
-      property.price +
-      (property.escrowFee || 0) +
-      (property.serviceCharge || 0);
-
-    const platformFee = property.escrowFee || 0;
+      property.price + platformFee + (property.serviceCharge || 0);
 
     const purchase = await Purchase.create({
       property: property._id,
@@ -649,7 +662,10 @@ const rejectPurchasePayment = async (req, res) => {
 // ---------------------------
 const markPurchaseRefundSent = async (req, res) => {
   try {
-    const { id, amountSent, transferReference, note } = req.body;
+    // const { id, amountSent, transferReference, note } = req.body;
+    const { id, amountSent, transferReference, note, waiveProcessingFee } =
+      req.body;
+
     if (!req.user || req.user.role !== "admin") {
       return res.status(403).json({ success: false, message: "Admin only." });
     }
@@ -660,13 +676,23 @@ const markPurchaseRefundSent = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Purchase not found" });
 
+    // the buyer's refund processing fee, unless the admin waived it
+    const amountPaid =
+      purchase.refundAmount || purchase.paidAmount || purchase.price;
+    const fee =
+      waiveProcessingFee === true || waiveProcessingFee === "true"
+        ? 0
+        : calculateRefundFee(amountPaid);
+
     const claimed = await Purchase.findOneAndUpdate(
       { _id: id, refundDue: true },
       {
         $set: {
           refundDue: false,
           refundSentAt: new Date(),
-          refundSentAmount: Number(amountSent) || purchase.refundAmount,
+          // refundSentAmount: Number(amountSent) || purchase.refundAmount,
+          refundSentAmount: Number(amountSent) || amountPaid - fee,
+          refundProcessingFee: fee,
           refundReference: transferReference,
           refundNote: note,
         },
@@ -684,7 +710,8 @@ const markPurchaseRefundSent = async (req, res) => {
     await Notification.create({
       user: purchase.buyer,
       title: "Purchase Refund Sent",
-      message: `Your offline refund of ${purchase.refundSentAmount} has been sent. Reference: ${transferReference || "N/A"}`,
+      // message: `Your offline refund of ${purchase.refundSentAmount} has been sent. Reference: ${transferReference || "N/A"}`,
+      message: `Your refund of ₦${Number(purchase.refundSentAmount).toLocaleString()} has been sent${fee ? ` (a ₦${fee.toLocaleString()} processing fee was deducted)` : ""}. Reference: ${transferReference || "N/A"}`,
       meta: { purchaseId: purchase._id },
     });
 

@@ -3,6 +3,8 @@ const User = require("../models/user");
 const Notification = require("../models/notification");
 const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 
+const { calculatePlatformFee } = require("../middlewares/platformFee");
+
 const Purchase = require("../models/purchase");
 
 // A buyer has paid (or their payment is under review) for these
@@ -139,7 +141,8 @@ const createProperty = async (req, res) => {
       title,
       description,
       price,
-      escrowFee,
+      // ignore any escrowFee in the request: the server works it out
+      escrowFee: calculatePlatformFee(price, listingType),
       address,
       propertyType,
       listingType,
@@ -344,10 +347,14 @@ const updateProperty = async (req, res) => {
     if (title !== undefined) prop.title = title;
     if (description !== undefined) prop.description = description;
     if (price !== undefined) prop.price = price;
-    if (escrowFee !== undefined) prop.escrowFee = escrowFee;
+    // if (escrowFee !== undefined) prop.escrowFee = escrowFee;
+    // it's worked out below, after the price and listing type are updated
     if (address !== undefined) prop.address = address;
     if (propertyType !== undefined) prop.propertyType = propertyType;
-    if (listingType !== undefined) prop.listingType = listingType;
+    // if (listingType !== undefined) prop.listingType = listingType;
+    // keep the platform fee in step with the (possibly new) price
+    prop.escrowFee = calculatePlatformFee(prop.price, prop.listingType);
+
     if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
     if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
 

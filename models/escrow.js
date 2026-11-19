@@ -37,6 +37,7 @@ const EscrowSchema = new Schema(
     refundedAmount: { type: Number, default: null },
     transferReference: { type: String, default: null },
     refundNote: { type: String, default: null },
+    refundProcessingFee: { type: Number, default: 0 },
 
     reason: { type: String, default: null },
   },

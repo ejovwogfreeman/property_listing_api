@@ -35,7 +35,8 @@ const PurchaseSchema = new Schema(
     refundSentAt: { type: Date },
     refundSentAmount: { type: Number },
     refundReference: { type: String },
-    refundNote: { type: String },
+    refundNote: { type: String, default: null },
+    refundProcessingFee: { type: Number, default: 0 },
 
     amountMismatch: { type: Boolean, default: false },
     paidAmount: { type: Number },
