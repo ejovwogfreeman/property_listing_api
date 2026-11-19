@@ -351,10 +351,9 @@ const updateProperty = async (req, res) => {
     // it's worked out below, after the price and listing type are updated
     if (address !== undefined) prop.address = address;
     if (propertyType !== undefined) prop.propertyType = propertyType;
-    // if (listingType !== undefined) prop.listingType = listingType;
-    // keep the platform fee in step with the (possibly new) price
+    if (listingType !== undefined) prop.listingType = listingType;
+    // keep the platform fee in step with the (possibly new) price and listing type
     prop.escrowFee = calculatePlatformFee(prop.price, prop.listingType);
-
     if (inspectionFee !== undefined) prop.inspectionFee = inspectionFee;
     if (serviceCharge !== undefined) prop.serviceCharge = serviceCharge;
 
