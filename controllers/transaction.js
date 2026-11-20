@@ -947,6 +947,24 @@ const requestWithdrawal = async (req, res) => {
       transactionId: transaction._id,
     });
 
+    // tell the admins: the payouts page (and its sidebar count) refreshes on this
+    const admins = await User.find({ role: "admin" }).select("_id");
+    const adminMessage = `${user.name || "An agent"} requested a withdrawal of ₦${Number(amount).toLocaleString()}.`;
+    for (const admin of admins) {
+      await Notification.create({
+        user: admin._id,
+        title: "New Withdrawal Request",
+        message: adminMessage,
+        meta: { transactionId: transaction._id },
+      });
+      notifyUser(admin._id, "notification", {
+        type: "withdrawal_requested",
+        title: "New Withdrawal Request",
+        message: adminMessage,
+        transactionId: transaction._id,
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: "Withdrawal request submitted successfully",
