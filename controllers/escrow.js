@@ -234,6 +234,26 @@ const changeEscrowStatus = async (req, res) => {
         escrowId: escrow._id,
       });
 
+      // the buyer's timeline shows "funds released to agent", so tell them too
+      // (no balance here: the money is the agent's)
+      if (escrow.buyer) {
+        const buyerMessage = isPurchase
+          ? "Your purchase is complete. The payment held in escrow has been released to the agent."
+          : "Your inspection is complete. The inspection fee held in escrow has been released to the agent.";
+        await Notification.create({
+          user: escrow.buyer,
+          title: "Funds Released to Agent",
+          message: buyerMessage,
+          meta: { escrowId: escrow._id },
+        });
+        notifyUser(escrow.buyer, "notification", {
+          type: "escrow_released",
+          title: "Funds Released to Agent",
+          message: buyerMessage,
+          escrowId: escrow._id,
+        });
+      }
+
       if (escrow.inspection) {
         await Inspection.findByIdAndUpdate(escrow.inspection, {
           feeReleased: true,
@@ -298,6 +318,14 @@ const changeEscrowStatus = async (req, res) => {
           escrowId: escrow._id,
         });
       }
+
+      // the buyer's timeline goes back to "pending" too
+      notifyUser(escrow.buyer, "notification", {
+        type: "escrow_reversal",
+        title: "Escrow Back On Hold",
+        message: "The escrow for this transaction is back on hold.",
+        escrowId: escrow._id,
+      });
 
       if (escrow.inspection) {
         await Inspection.findByIdAndUpdate(escrow.inspection, {
