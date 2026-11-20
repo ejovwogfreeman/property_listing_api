@@ -314,6 +314,14 @@ const updateProperty = async (req, res) => {
         .json({ success: false, message: "Property not found" });
     }
 
+    if (prop.status === "sold") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This property has been sold, so it can't be edited. To list it again, create a new property.",
+      });
+    }
+
     if (
       prop.owner._id.toString() !== req.user._id.toString() &&
       req.user.role !== "admin"
@@ -463,6 +471,14 @@ const deleteProperty = async (req, res) => {
         .json({ success: false, message: "Not authorized" });
     }
 
+    if (prop.status === "sold") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This property has been sold, so it can't be deleted. The buyer's transaction still refers to it.",
+      });
+    }
+
     await prop.deleteOne();
 
     await Notification.create({
@@ -516,6 +532,14 @@ const changePropertyStatus = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Property not found",
+      });
+    }
+
+    if (property.status === "sold") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This property has been sold. Its status is set by the purchase and can't be changed here.",
       });
     }
 

@@ -13,8 +13,12 @@ const {
   calculatePlatformFee,
   calculateRefundFee,
 } = require("../middlewares/platformFee");
+// const {
+//   cancelInspectionsForSoldProperty,
+// } = require("../middlewares/propertyTaken");
 const {
   cancelInspectionsForSoldProperty,
+  syncPropertySold,
 } = require("../middlewares/propertyTaken");
 
 // Helper for targeted socket notifications with error isolation
@@ -983,9 +987,16 @@ const completePurchaseHandover = async (req, res) => {
       });
     }
 
+    // purchase.status = "handover_completed";
+    // purchase.completedAt = new Date();
+    // await purchase.save();
+
     purchase.status = "handover_completed";
     purchase.completedAt = new Date();
     await purchase.save();
+
+    // the property is off the market now
+    await syncPropertySold(purchase.property);
 
     const sellerId = purchase.owner?._id || purchase.owner;
     const adminUser = await User.findOne({ role: "admin" });
@@ -1114,6 +1125,9 @@ const changePurchaseStatus = async (req, res) => {
     // }
 
     await purchase.save();
+
+    // into "handover_completed" sells the property; out of it puts it back
+    await syncPropertySold(purchase.property);
 
     const notificationMessage = `Your purchase status has been updated to: ${status.replace(/_/g, " ")}.`;
 

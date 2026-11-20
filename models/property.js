@@ -92,7 +92,10 @@ const propertySchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected"],
+      // enum: ["pending", "approved", "rejected"],
+      // sold: the buyer completed the handover (shown as "Rented" for rent
+      // listings). set by syncPropertySold, never by hand
+      enum: ["pending", "approved", "rejected", "sold"],
       default: "pending",
     },
     // 👈 ADD THIS FIELD TO YOUR SCHEMA

@@ -6,6 +6,7 @@ const Purchase = require("../models/purchase");
 const Transaction = require("../models/transaction");
 const { Dispute } = require("../models/dispute");
 const { calculateRefundFee } = require("../middlewares/platformFee");
+const { syncPropertySold } = require("../middlewares/propertyTaken");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -438,6 +439,11 @@ const approveEscrowRefund = async (req, res) => {
           },
         );
       }
+    }
+
+    // a refunded purchase is no longer a sale: the property goes back on the market
+    if (escrow.purchase || escrow.type === "purchase") {
+      await syncPropertySold(escrow.property);
     }
 
     // Notify buyer (offline payment method note) and seller

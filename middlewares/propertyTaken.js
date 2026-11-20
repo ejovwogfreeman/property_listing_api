@@ -3,6 +3,7 @@ const Inspection = require("../models/inspection");
 const Escrow = require("../models/escrow");
 const User = require("../models/user");
 const Notification = require("../models/notification");
+const Property = require("../models/property");
 
 // A buyer has paid for the property (same list as controllers/property.js)
 const TAKEN_STATUSES = [
@@ -164,8 +165,81 @@ const cancelInspectionsForSoldProperty = async (purchase) => {
   }
 };
 
+// A purchase whose buyer has completed the handover: the property is off the market
+const SOLD_STATUSES = ["handover_completed", "funds_released"];
+
+// Puts a property's status in step with its purchases. Call it after anything
+// that moves a purchase into or out of a completed handover. A sold property
+// stays sold unless that purchase is undone (refunded, or moved back by an
+// admin); then it goes back to "approved". There is no relisting: an agent
+// who wants to sell it again creates a new property.
+const syncPropertySold = async (propertyRef) => {
+  try {
+    const propertyId = propertyRef?._id || propertyRef;
+    if (!propertyId) return;
+
+    const completed = await Purchase.exists({
+      property: propertyId,
+      status: { $in: SOLD_STATUSES },
+    });
+
+    if (completed) {
+      const sold = await Property.findOneAndUpdate(
+        { _id: propertyId, status: { $ne: "sold" } },
+        {
+          $set: { status: "sold" },
+          $push: { statusHistory: { status: "sold", at: new Date() } },
+        },
+        { new: true },
+      );
+      if (!sold) return; // already sold
+
+      const word = sold.listingType === "rent" ? "rented" : "sold";
+      const message = `Congratulations! "${sold.title}" has been ${word}. It's no longer listed for buyers.`;
+      const ownerId = sold.owner?._id || sold.owner;
+      await Notification.create({
+        user: ownerId,
+        title: word === "rented" ? "Property Rented" : "Property Sold",
+        message,
+        meta: { propertyId: sold._id },
+      });
+      // to everyone, so open listings drop it (the frontend only refreshes on this)
+      if (global.io) {
+        global.io.emit("notification", {
+          type: "property_sold",
+          title: "Property no longer available",
+          message: `"${sold.title}" is no longer available.`,
+          propertyId: sold._id,
+        });
+      }
+      return;
+    }
+
+    // the deal that sold it was undone: back on the market
+    const reopened = await Property.findOneAndUpdate(
+      { _id: propertyId, status: "sold" },
+      {
+        $set: { status: "approved" },
+        $push: { statusHistory: { status: "approved", at: new Date() } },
+      },
+      { new: true },
+    );
+    if (reopened && global.io) {
+      global.io.emit("notification", {
+        type: "property_available",
+        title: "Property available again",
+        message: `"${reopened.title}" is available again.`,
+        propertyId: reopened._id,
+      });
+    }
+  } catch (err) {
+    console.error("syncPropertySold error:", err);
+  }
+};
+
 module.exports = {
   isPropertyTakenByOther,
   cancelInspectionsForSoldProperty,
+  syncPropertySold,
   PROPERTY_TAKEN_MESSAGE,
 };
