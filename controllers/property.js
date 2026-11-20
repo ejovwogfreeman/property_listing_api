@@ -3,7 +3,7 @@ const User = require("../models/user");
 const Notification = require("../models/notification");
 const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 
-// const { calculatePlatformFee } = require("../middlewares/platformFee");
+const { calculatePlatformFee } = require("../middlewares/platformFee");
 
 const {
   stopAdsForProperty,
