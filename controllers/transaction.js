@@ -232,6 +232,25 @@ const recordWalletFunding = async (reference, paystackData, requesterId) => {
     transactionId: transaction._id,
   });
 
+  // tell the admins: the reports page (and its sidebar count) refreshes on this
+  const funder = await User.findById(meta.userId).select("name");
+  const fundingAdmins = await User.find({ role: "admin" }).select("_id");
+  const fundingMessage = `${funder?.name || "An agent"} funded their wallet with ₦${paidAmount.toLocaleString()}. Confirm the payment to add it to their balance.`;
+  for (const admin of fundingAdmins) {
+    await Notification.create({
+      user: admin._id,
+      title: "Wallet Funding to Confirm",
+      message: fundingMessage,
+      meta: { transactionId: transaction._id },
+    });
+    notifyUser(admin._id, "notification", {
+      type: "wallet_funding_pending",
+      title: "Wallet Funding to Confirm",
+      message: fundingMessage,
+      transactionId: transaction._id,
+    });
+  }
+
   return { transaction, created: true };
 };
 
