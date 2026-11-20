@@ -59,6 +59,9 @@ const InspectionSchema = new Schema(
     completedAt: { type: Date },
     feeReleasedAt: { type: Date },
     cancelledAt: { type: Date },
+    // why it was cancelled: "property_taken" when another buyer secured the
+    // property. those refunds carry no processing fee
+    cancelReason: { type: String, default: null },
   },
   { timestamps: true },
 );

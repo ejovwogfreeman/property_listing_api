@@ -40,6 +40,9 @@ const EscrowSchema = new Schema(
     refundProcessingFee: { type: Number, default: 0 },
 
     reason: { type: String, default: null },
+    // no processing fee on this refund (e.g. the property was secured by
+    // another buyer before the inspection)
+    refundFeeWaived: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

@@ -13,6 +13,9 @@ const {
   calculatePlatformFee,
   calculateRefundFee,
 } = require("../middlewares/platformFee");
+const {
+  cancelInspectionsForSoldProperty,
+} = require("../middlewares/propertyTaken");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -568,6 +571,18 @@ const verifyPurchasePayment = async (req, res) => {
       escrowId: escrow._id,
       status: purchase.status,
     });
+
+    // res.json({
+    //   success: true,
+    //   amountMismatch,
+    //   message: "Payment verified successfully. Escrow created as pending.",
+    // the property is now secured: cancel the other buyers' open inspections
+    // and refund them in full. a failure here mustn't undo the approval
+    try {
+      await cancelInspectionsForSoldProperty(purchase);
+    } catch (cancelErr) {
+      console.error("cancelInspectionsForSoldProperty error:", cancelErr);
+    }
 
     res.json({
       success: true,

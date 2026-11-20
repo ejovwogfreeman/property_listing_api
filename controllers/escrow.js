@@ -476,8 +476,15 @@ const completeEscrowRefund = async (req, res) => {
 
     // the buyer's refund processing fee, unless the admin waived it
     const pending = await Escrow.findById(id);
+    // const fee =
+    //   waiveProcessingFee === true || waiveProcessingFee === "true"
+    //     ? 0
+    //     : calculateRefundFee(pending?.amount || 0);
+
     const fee =
-      waiveProcessingFee === true || waiveProcessingFee === "true"
+      waiveProcessingFee === true ||
+      waiveProcessingFee === "true" ||
+      pending?.refundFeeWaived
         ? 0
         : calculateRefundFee(pending?.amount || 0);
 

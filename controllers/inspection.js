@@ -13,6 +13,10 @@ const crypto = require("crypto");
 const { processPurchasePaymentConfirmation } = require("./purchase");
 const { recordWalletFunding } = require("./transaction");
 const { calculateRefundFee } = require("../middlewares/platformFee");
+const {
+  isPropertyTakenByOther,
+  PROPERTY_TAKEN_MESSAGE,
+} = require("../middlewares/propertyTaken");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -90,6 +94,15 @@ const requestInspection = async (req, res) => {
           "An active or completed inspection for this property already exists.",
         inspectionId: existingInspection._id,
         status: existingInspection.status,
+      });
+    }
+
+    // another buyer has paid for this property: no new inspections for now
+    if (await isPropertyTakenByOther(propertyId, userId)) {
+      return res.status(400).json({
+        success: false,
+        propertyTaken: true,
+        message: PROPERTY_TAKEN_MESSAGE,
       });
     }
 
@@ -194,6 +207,18 @@ const initializeInspectionPayment = async (req, res) => {
       }
     }
 
+    // another buyer has paid for this property: don't take a new fee.
+    // 400, not 409: the frontend reads 409 as "already paid"
+    const inspectionPropertyId =
+      inspection.property?._id || inspection.property;
+    if (await isPropertyTakenByOther(inspectionPropertyId, userId)) {
+      return res.status(400).json({
+        success: false,
+        propertyTaken: true,
+        message: PROPERTY_TAKEN_MESSAGE,
+      });
+    }
+
     const reference = crypto.randomBytes(16).toString("hex");
 
     // Initialize transaction with Paystack first before committing state changes
@@ -266,6 +291,51 @@ const processInspectionPaymentConfirmation = async (inspection, reference) => {
 
   if (paidAmount !== expectedAmountInKobo) {
     amountMismatch = true;
+  }
+
+  // The property was secured by another buyer while this buyer was on
+  // Paystack, so the inspection is already cancelled. Record the payment and
+  // mark it for a full refund instead of losing it.
+  if (
+    inspection.status === "inspection_cancelled" &&
+    inspection.cancelReason === "property_taken"
+  ) {
+    const refunded = await Inspection.findOneAndUpdate(
+      {
+        _id: inspection._id,
+        status: "inspection_cancelled",
+        paystackPaidAt: null,
+      },
+      {
+        $set: {
+          paystackPaidAt: new Date(),
+          amountMismatch,
+          paidAmount: paidAmount / 100,
+          refundDue: true,
+          refundAmount: paidAmount / 100,
+        },
+      },
+      { new: true },
+    );
+
+    if (refunded) {
+      const message = `We received your inspection payment of ₦${(paidAmount / 100).toLocaleString()}, but another buyer secured this property first. It will be refunded to you in full, with no processing fee.`;
+      await Notification.create({
+        user: inspection.user,
+        title: "Payment Will Be Refunded",
+        message,
+        meta: { inspectionId: inspection._id },
+      });
+      notifyUser(inspection.user, "notification", {
+        type: "inspection_cancelled",
+        title: "Payment Will Be Refunded",
+        message,
+        inspectionId: inspection._id,
+        status: refunded.status,
+      });
+    }
+
+    return refunded || (await Inspection.findById(inspection._id));
   }
 
   // Idempotency: if already past initialized/requested, return current record
@@ -601,8 +671,15 @@ const markInspectionRefundSent = async (req, res) => {
     // the buyer's refund processing fee, unless the admin waived it
     const amountPaid =
       inspection.refundAmount || inspection.paidAmount || inspection.fee;
+    // const fee =
+    //   waiveProcessingFee === true || waiveProcessingFee === "true"
+    //     ? 0
+    //     : calculateRefundFee(amountPaid);
+
     const fee =
-      waiveProcessingFee === true || waiveProcessingFee === "true"
+      waiveProcessingFee === true ||
+      waiveProcessingFee === "true" ||
+      inspection.cancelReason === "property_taken"
         ? 0
         : calculateRefundFee(amountPaid);
 
