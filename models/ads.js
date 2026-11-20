@@ -27,7 +27,9 @@ const AdSchema = new mongoose.Schema(
         "active",
         "completed",
         "paused",
-      ], // Added "approved" & "rejected" for Item 19
+        // ended early: property secured, rejected, flagged or deleted, or an admin stopped it
+        "stopped",
+      ], // "pending" & "approved" are only on ads from before pay-at-launch
       default: "pending",
     },
     isPaid: { type: Boolean, default: false },
@@ -39,6 +41,18 @@ const AdSchema = new mongoose.Schema(
     spent: { type: Number, default: 0 },
     ctr: { type: Number, default: 0 }, // Click-Through Rate (e.g., percentage)
     pauseReason: { type: String, default: null },
+    // --- pay-at-launch: the running clock (see middlewares/adBilling.js) ---
+    // paid run time not used yet, in ms; counts down while the ad runs
+    remainingMs: { type: Number, default: 0 },
+    // when the clock last started; null while paused or ended
+    runningSince: { type: Date, default: null },
+    // what the agent paid, by source (a resume adds to these)
+    paidFromCredit: { type: Number, default: 0 },
+    paidFromWallet: { type: Number, default: 0 },
+    endedAt: { type: Date, default: null },
+    // why it stopped early: property_secured, property_rejected,
+    // property_flagged, property_deleted or admin
+    stopReason: { type: String, default: null },
   },
   {
     timestamps: true, // Automatically manages createdAt and updatedAt fields

@@ -3,7 +3,12 @@ const User = require("../models/user");
 const Notification = require("../models/notification");
 const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");
 
-const { calculatePlatformFee } = require("../middlewares/platformFee");
+// const { calculatePlatformFee } = require("../middlewares/platformFee");
+
+const {
+  stopAdsForProperty,
+  pauseAdsForProperty,
+} = require("../middlewares/adBilling");
 
 const Purchase = require("../models/purchase");
 
@@ -479,6 +484,9 @@ const deleteProperty = async (req, res) => {
       });
     }
 
+    // stop any ad on it first, so its unused days go to the agent's ad credit
+    await stopAdsForProperty(prop._id, "property_deleted");
+
     await prop.deleteOne();
 
     await Notification.create({
@@ -553,9 +561,21 @@ const changePropertyStatus = async (req, res) => {
       property.rejectionReason = undefined;
     }
 
+    // await property.save();
+
+    // let notificationMessage = `Your property "${property.title}" has been ${status}.`;
     await property.save();
 
+    // ads only run on approved listings: a rejected one stops (unused days to
+    // ad credit); one sent back to review is paused until it's approved again
+    if (status === "rejected") {
+      await stopAdsForProperty(property._id, "property_rejected");
+    } else if (status === "pending") {
+      await pauseAdsForProperty(property._id);
+    }
+
     let notificationMessage = `Your property "${property.title}" has been ${status}.`;
+
     if (status === "rejected" && property.rejectionReason) {
       notificationMessage += ` Reason: ${property.rejectionReason}`;
     }
@@ -631,9 +651,18 @@ const flagProperty = async (req, res) => {
 
     property.isFlagged = flagged;
     property.flagReason = flagged ? reason || "No reason provided" : null;
+    // property.flaggedAt = flagged ? new Date() : null;
+
+    // await property.save();
+
     property.flaggedAt = flagged ? new Date() : null;
 
     await property.save();
+
+    // a flagged listing can't carry an ad: it stops, unused days to ad credit
+    if (flagged) {
+      await stopAdsForProperty(property._id, "property_flagged");
+    }
 
     return res.status(200).json({
       success: true,

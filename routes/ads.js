@@ -5,17 +5,23 @@ const upload = multer(); // Handles multipart/form-data text fields
 
 const {
   createAd,
-  reviewAd, // <--- Imported review controller function (Item 19)
-  payForAd,
   getAds,
   getAd,
   updateAd,
   deleteAd,
+  getFeaturedAds,
+  recordAdClick,
 } = require("../controllers/ads");
 const { protect, authorize } = require("../middlewares/auth");
 const trackActivity = require("../middlewares/trackActivity");
 
-// Only agents can create ads
+// Public: the home page's featured properties, and clicks on them.
+// These come before "/:id" so "featured" isn't read as an ad id.
+router.get("/featured", getFeaturedAds);
+router.post("/:id/click", recordAdClick);
+
+// Only agents create ads. Creating one pays for it and launches it at once
+// (there is no admin approval any more)
 router.post(
   "/",
   protect,
@@ -25,26 +31,12 @@ router.post(
   createAd,
 );
 
-// --- ITEM 19: Admin Ad Review / Approval Route ---
-router.patch(
-  "/:id/review",
-  protect,
-  authorize("admin"),
-  trackActivity,
-  upload.none(),
-  reviewAd,
-);
-
-// Both admins and agents can view all ads
+// Admins see all ads, agents see their own
 router.get("/", protect, authorize("admin", "agent"), trackActivity, getAds);
 
-// Only agents can pay for their ads
-router.post("/:id/pay", protect, authorize("agent"), trackActivity, payForAd);
-
-// Both admins and agents can view a single ad
 router.get("/:id", protect, authorize("admin", "agent"), trackActivity, getAd);
 
-// Both admins and agents can update (agents update details, admin updates status)
+// Agents pause or resume; admins stop
 router.patch(
   "/:id",
   protect,
@@ -54,7 +46,7 @@ router.patch(
   updateAd,
 );
 
-// Both admins and agents can delete
+// Agents: unpaid ads only. Admins: any ad that isn't running or paused
 router.delete(
   "/:id",
   protect,

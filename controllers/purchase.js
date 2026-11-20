@@ -20,6 +20,7 @@ const {
   cancelInspectionsForSoldProperty,
   syncPropertySold,
 } = require("../middlewares/propertyTaken");
+const { stopAdsForProperty } = require("../middlewares/adBilling");
 
 // Helper for targeted socket notifications with error isolation
 const notifyUser = (userId, event, data) => {
@@ -587,6 +588,10 @@ const verifyPurchasePayment = async (req, res) => {
     } catch (cancelErr) {
       console.error("cancelInspectionsForSoldProperty error:", cancelErr);
     }
+
+    // the property is secured, so any ad on it stops; its unused days go to
+    // the agent's ad credit (never throws)
+    await stopAdsForProperty(purchase.property, "property_secured");
 
     res.json({
       success: true,

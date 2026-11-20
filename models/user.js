@@ -47,6 +47,9 @@ const UserSchema = new mongoose.Schema({
     default: 0,
   },
   balance: { type: Number, default: 0 },
+  // money for ads only: the unused days of paused or stopped ads. Spent on
+  // the next ad before the wallet; never withdrawn
+  adCredit: { type: Number, default: 0 },
   address: { type: String, default: null },
   phoneNumber: { type: String, default: null },
   profilePicture: {

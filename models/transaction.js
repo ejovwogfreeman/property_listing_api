@@ -37,6 +37,8 @@ const TransactionSchema = new Schema(
         "withdrawal",
         "escrow_release",
         "escrow_refund",
+        // the part of an ad paid from the wallet (see middlewares/adBilling.js)
+        "ad_payment",
       ],
       required: true,
     },

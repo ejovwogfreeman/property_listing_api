@@ -1,15 +1,60 @@
 const Ad = require("../models/ads");
 const Property = require("../models/property");
-const User = require("../models/user");
-const Notification = require("../models/notification");
+const Purchase = require("../models/purchase");
+const {
+  DAY_MS,
+  TAKEN_STATUSES,
+  naira,
+  notifyAgent,
+  whyNotAdvertisable,
+  chargeForAd,
+  refundCharge,
+  recordAdPayment,
+  settleExpiredAds,
+  pauseAd,
+  resumeAd,
+  stopAd,
+  stopMessage,
+} = require("../middlewares/adBilling");
+
+// A property can have one running or paused ad at a time
+const OPEN_STATUSES = ["active", "paused"];
+
+// how many properties the home page features at once
+const FEATURED_LIMIT = 8;
+
+// fields a running ad starts with: the whole paid time ahead of it
+const launchFields = (duration, charge) => {
+  const now = new Date();
+  const runMs = duration * DAY_MS;
+  return {
+    status: "active",
+    isPaid: true,
+    startDate: now,
+    endDate: new Date(now.getTime() + runMs),
+    remainingMs: runMs,
+    runningSince: now,
+    paidFromCredit: charge.fromCredit,
+    paidFromWallet: charge.fromWallet,
+    spent: 0,
+  };
+};
+
+const launchedMessage = (title, duration, charge) => {
+  const parts = [];
+  if (charge.fromCredit > 0)
+    parts.push(`${naira(charge.fromCredit)} from ad credit`);
+  if (charge.fromWallet > 0)
+    parts.push(`${naira(charge.fromWallet)} from your wallet`);
+  return `Your ad for "${title}" is live for ${duration} day${duration === 1 ? "" : "s"}. Paid ${parts.join(" and ")}.`;
+};
 
 /**
- * @desc Create a new property ad (Agent only)
+ * @desc Create and launch an ad, paid at once (ad credit first, then wallet)
  * @route POST /api/ads
  */
 const createAd = async (req, res) => {
   try {
-    // Restrict ad creation strictly to agents
     if (req.user.role !== "agent") {
       return res.status(403).json({
         success: false,
@@ -17,230 +62,99 @@ const createAd = async (req, res) => {
       });
     }
 
-    const {
-      property,
-      objective,
-      dailyBudget,
-      duration,
-      adBudget,
-      startDate,
-      endDate,
-    } = req.body;
-    const userId = req.user._id;
+    const { property, objective } = req.body;
+    const dailyBudget = Math.round(Number(req.body.dailyBudget));
+    const duration = Math.round(Number(req.body.duration));
 
-    // Verify property exists and belongs to the agent
+    if (!property || !objective) {
+      return res.status(400).json({
+        success: false,
+        message: "Property and objective are required.",
+      });
+    }
+    if (!(dailyBudget > 0) || !(duration >= 1)) {
+      return res.status(400).json({
+        success: false,
+        message: "Daily budget and duration must be positive numbers.",
+      });
+    }
+
     const prop = await Property.findById(property);
     if (!prop) {
       return res
         .status(404)
         .json({ success: false, message: "Property not found" });
     }
-
-    if (prop.owner._id.toString() !== userId.toString()) {
+    if (prop.owner._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
         message: "Not authorized to advertise a property you do not own",
       });
     }
 
-    // Check if there is already an active or pending/approved ad for this property
-    const existingAd = await Ad.findOne({
-      property,
-      status: { $in: ["pending", "approved", "active"] },
-    });
+    const reason = await whyNotAdvertisable(prop._id);
+    if (reason) {
+      return res.status(400).json({ success: false, message: reason });
+    }
 
-    if (existingAd) {
+    await settleExpiredAds();
+    const existing = await Ad.exists({
+      property: prop._id,
+      status: { $in: OPEN_STATUSES },
+    });
+    if (existing) {
       return res.status(400).json({
         success: false,
         message:
-          "An active, approved, or pending ad already exists for this property. You cannot create a new one until it completes or is removed.",
+          "This property already has a running or paused ad. Resume that one, or wait for it to finish.",
       });
     }
 
-    // Calculate total adBudget automatically if not provided or to ensure accuracy
-    const calculatedBudget = adBudget || dailyBudget * duration;
-
-    // Handle Start and End Dates (Item 19)
-    const adStartDate = startDate ? new Date(startDate) : new Date();
-    let adEndDate = endDate ? new Date(endDate) : new Date(adStartDate);
-
-    if (!endDate && duration) {
-      adEndDate.setDate(adStartDate.getDate() + Number(duration));
-    }
-
-    const newAd = await Ad.create({
-      user: userId,
-      property,
-      objective,
-      dailyBudget,
-      duration,
-      adBudget: calculatedBudget,
-      startDate: adStartDate,
-      endDate: adEndDate,
-      status: "pending", // Strictly initialized as pending awaiting admin approval
-      isPaid: false,
-    });
-
-    // Populate property details for the response
-    await newAd.populate("property");
-
-    // Notify user
-    await Notification.create({
-      user: userId,
-      title: "Ad Created",
-      message: `Your ad campaign for "${prop.title}" has been created and is pending admin approval.`,
-      meta: { adId: newAd._id },
-    });
-
-    // Notify Admin
-    const adminUser = await User.findOne({ role: "admin" });
-    if (adminUser) {
-      await Notification.create({
-        user: adminUser._id,
-        title: "New Ad Pending Review",
-        message: `A new ad campaign for "${prop.title}" requires your approval.`,
-        meta: { adId: newAd._id },
+    const adBudget = dailyBudget * duration;
+    const charge = await chargeForAd(req.user._id, adBudget);
+    if (!charge.ok) {
+      return res.status(400).json({
+        success: false,
+        message: charge.message,
+        shortBy: charge.shortBy,
       });
     }
+
+    let ad;
+    try {
+      ad = await Ad.create({
+        user: req.user._id,
+        property: prop._id,
+        objective,
+        dailyBudget,
+        duration,
+        adBudget,
+        ...launchFields(duration, charge),
+      });
+    } catch (createErr) {
+      // give the money back if the ad couldn't be saved
+      await refundCharge(req.user._id, charge);
+      throw createErr;
+    }
+
+    await recordAdPayment(req.user._id, charge.fromWallet, ad);
+    await ad.populate("property");
+    await notifyAgent(
+      req.user._id,
+      "Ad Launched",
+      launchedMessage(prop.title, duration, charge),
+      ad._id,
+    );
 
     res.status(201).json({
       success: true,
-      message:
-        "Ad created successfully as pending. Awaiting admin review and approval.",
-      data: newAd,
+      message: "Ad launched.",
+      data: ad,
+      balance: charge.balance,
+      adCredit: charge.adCredit,
     });
   } catch (err) {
     console.error("createAd error:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
-  }
-};
-
-/**
- * @desc Admin Review / Approval Step for Ads (Item 19)
- * @route PATCH /api/ads/:id/review
- */
-const reviewAd = async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
-      return res
-        .status(403)
-        .json({ success: false, message: "Unauthorized. Admin only." });
-    }
-
-    const { status } = req.body; // "approved" or "rejected"
-    if (!["approved", "rejected"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status. Use 'approved' or 'rejected'.",
-      });
-    }
-
-    const ad = await Ad.findById(req.params.id).populate("property");
-    if (!ad) {
-      return res.status(404).json({ success: false, message: "Ad not found" });
-    }
-
-    ad.status = status;
-    await ad.save();
-
-    // Notify agent/advertiser
-    await Notification.create({
-      user: ad.user,
-      title: `Ad ${status.charAt(0).toUpperCase() + status.slice(1)}`,
-      message: `Your ad campaign for "${ad.property?.title}" has been ${status} by admin.`,
-      meta: { adId: ad._id },
-    });
-
-    res.status(200).json({
-      success: true,
-      message: `Ad successfully ${status}`,
-      data: ad,
-    });
-  } catch (err) {
-    console.error("reviewAd error:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
-  }
-};
-
-/**
- * @desc Pay for an ad using the user's wallet balance and activate it
- * @route POST /api/ads/:id/pay
- */
-const payForAd = async (req, res) => {
-  try {
-    const ad = await Ad.findById(req.params.id);
-    if (!ad) {
-      return res.status(404).json({ success: false, message: "Ad not found" });
-    }
-
-    // Check ownership
-    if (ad.user.toString() !== req.user._id.toString()) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Not authorized" });
-    }
-
-    // Ensure ad has been approved by admin before payment is allowed
-    if (ad.status !== "approved") {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot pay for ad. Current status is '${ad.status}'. It must be approved by an admin first.`,
-      });
-    }
-
-    if (ad.isPaid) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Ad has already been paid for" });
-    }
-
-    // Fetch user to check wallet balance
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-
-    const currentBalance = user.balance || user.walletBalance || 0;
-
-    if (currentBalance < ad.adBudget) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient wallet balance. Required: ${ad.adBudget}, Available: ${currentBalance}`,
-      });
-    }
-
-    // Deduct from wallet & save user
-    user.balance = currentBalance - ad.adBudget;
-    await user.save();
-
-    // Update ad payment details and automatically set status to active upon payment success
-    ad.isPaid = true;
-    ad.spent = ad.adBudget;
-    ad.status = "active";
-    await ad.save();
-    await ad.populate("property");
-
-    // Send Notification
-    await Notification.create({
-      user: ad.user,
-      title: "Ad Payment Successful & Activated",
-      message: `Successfully paid ${ad.adBudget} from your balance. Your approved ad is now active!`,
-      meta: { adId: ad._id },
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Ad payment successful and campaign is now active",
-      data: ad,
-    });
-  } catch (err) {
-    console.error("payForAd error:", err);
     res
       .status(500)
       .json({ success: false, message: "Server error", error: err.message });
@@ -253,14 +167,17 @@ const payForAd = async (req, res) => {
  */
 const getAds = async (req, res) => {
   try {
-    let query = {};
+    await settleExpiredAds();
+
+    const query = {};
     if (req.user.role !== "admin") {
       query.user = req.user._id;
     }
 
     const ads = await Ad.find(query)
+      .sort({ createdAt: -1 })
       .populate("property")
-      .populate("user", "name email phoneNumber profilePicture");
+      .populate("user", "name email phoneNumber profilePicture adCredit");
 
     res.status(200).json({
       success: true,
@@ -281,9 +198,11 @@ const getAds = async (req, res) => {
  */
 const getAd = async (req, res) => {
   try {
+    await settleExpiredAds();
+
     const ad = await Ad.findById(req.params.id)
       .populate("property")
-      .populate("user", "name email phoneNumber profilePicture");
+      .populate("user", "name email phoneNumber profilePicture adCredit");
 
     if (!ad) {
       return res.status(404).json({ success: false, message: "Ad not found" });
@@ -311,120 +230,121 @@ const getAd = async (req, res) => {
 };
 
 /**
- * @desc Update an ad (Agents update details, Admin changes status/pauseReason)
+ * @desc Change a launched ad's state. Agents: { status: "paused" } or
+ *       { status: "active" } (resume). Admins: { status: "stopped" }.
+ *       A launched ad's details can't be edited.
  * @route PATCH /api/ads/:id
  */
 const updateAd = async (req, res) => {
   try {
-    const {
-      objective,
-      dailyBudget,
-      duration,
-      adBudget,
-      status,
-      pauseReason,
-      startDate,
-      endDate,
-    } = req.body;
+    const { status } = req.body;
 
-    const ad = await Ad.findById(req.params.id);
+    await settleExpiredAds();
+    const ad = await Ad.findById(req.params.id).populate("property", "title");
     if (!ad) {
       return res.status(404).json({ success: false, message: "Ad not found" });
     }
 
     const isAdmin = req.user.role === "admin";
     const isOwner = ad.user.toString() === req.user._id.toString();
-
     if (!isAdmin && !isOwner) {
       return res
         .status(403)
         .json({ success: false, message: "Not authorized" });
     }
 
-    // Validate status input against allowed schema values
-    const allowedStatuses = [
-      "pending",
-      "approved",
-      "rejected",
-      "active",
-      "completed",
-      "paused",
-    ];
-    if (status !== undefined && !allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid status value provided.",
+    const title = ad.property?.title || "your property";
+
+    // an admin can only stop an ad; its unused time goes to the agent's ad credit
+    if (isAdmin) {
+      if (status !== "stopped") {
+        return res.status(400).json({
+          success: false,
+          message: 'Admins can only stop an ad ({ status: "stopped" }).',
+        });
+      }
+      const result = await stopAd(ad, "admin");
+      if (!result) {
+        return res.status(400).json({
+          success: false,
+          message: "Only a running or paused ad can be stopped.",
+        });
+      }
+      await notifyAgent(
+        ad.user,
+        "Ad Stopped",
+        stopMessage(title, "admin", result),
+        ad._id,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Ad stopped.",
+        data: result.ad,
       });
     }
 
-    // If the user is an admin, they can update status arbitrarily and change pauseReason
-    if (isAdmin) {
-      if (status !== undefined) ad.status = status;
-      if (pauseReason !== undefined) ad.pauseReason = pauseReason;
-    }
-
-    // If the user is the owner (agent)
-    if (isOwner) {
-      // Handle agent status updates: toggle between active and paused (only if paid/approved)
-      if (status !== undefined) {
-        const isValidToggle =
-          (ad.status === "active" && status === "paused") ||
-          (ad.status === "paused" && status === "active");
-
-        if (!isValidToggle) {
-          return res.status(403).json({
-            success: false,
-            message:
-              "Agents can only toggle status between 'active' and 'paused'. Use the review endpoint for approvals.",
-          });
-        }
-        ad.status = status;
-        if (pauseReason !== undefined) ad.pauseReason = pauseReason;
-      }
-
-      // Campaign field modifications (allowed only if unpaid)
-      if (
-        ad.isPaid &&
-        (objective ||
-          dailyBudget ||
-          duration ||
-          adBudget ||
-          startDate ||
-          endDate)
-      ) {
+    // the agent can only pause and resume
+    if (status === "paused") {
+      if (ad.status !== "active") {
         return res.status(400).json({
           success: false,
-          message:
-            "Cannot modify campaign details after payment has been completed.",
+          message: "Only a running ad can be paused.",
         });
       }
-
-      if (objective !== undefined) ad.objective = objective;
-      if (dailyBudget !== undefined) ad.dailyBudget = dailyBudget;
-      if (duration !== undefined) ad.duration = duration;
-      if (startDate !== undefined) ad.startDate = new Date(startDate);
-      if (endDate !== undefined) ad.endDate = new Date(endDate);
-
-      if (startDate !== undefined && duration !== undefined && !endDate) {
-        let calculatedEnd = new Date(startDate);
-        calculatedEnd.setDate(calculatedEnd.getDate() + Number(duration));
-        ad.endDate = calculatedEnd;
+      const result = await pauseAd(ad);
+      if (!result) {
+        return res.status(400).json({
+          success: false,
+          message: "This ad was just changed. Refresh and try again.",
+        });
       }
-
-      if (dailyBudget !== undefined || duration !== undefined) {
-        ad.adBudget = adBudget || ad.dailyBudget * ad.duration;
-      } else if (adBudget !== undefined) {
-        ad.adBudget = adBudget;
-      }
+      await notifyAgent(
+        ad.user,
+        "Ad Paused",
+        `Your ad for "${title}" is paused. The unused ${naira(result.credited)} is in your ad credit until you resume it or use it on another ad.`,
+        ad._id,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Ad paused.",
+        data: result.ad,
+      });
     }
 
-    await ad.save();
-    await ad.populate("property");
+    if (status === "active") {
+      if (ad.status !== "paused") {
+        return res.status(400).json({
+          success: false,
+          message: "Only a paused ad can be resumed.",
+        });
+      }
+      const result = await resumeAd(ad);
+      if (!result.ok) {
+        return res.status(400).json({
+          success: false,
+          message: result.message,
+          shortBy: result.shortBy,
+        });
+      }
+      await notifyAgent(
+        ad.user,
+        "Ad Resumed",
+        `Your ad for "${title}" is running again.`,
+        ad._id,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Ad resumed.",
+        data: result.ad,
+        balance: result.charge.balance,
+        adCredit: result.charge.adCredit,
+      });
+    }
 
-    res.status(200).json({
-      success: true,
-      message: "Ad updated successfully",
-      data: ad,
+    return res.status(400).json({
+      success: false,
+      message:
+        "A launched ad can't be edited or stopped. You can only pause or resume it.",
     });
   } catch (err) {
     console.error("updateAd error:", err);
@@ -435,7 +355,10 @@ const updateAd = async (req, res) => {
 };
 
 /**
- * @desc Delete an ad
+ * @desc Delete an ad. An agent can only delete an unpaid ad; a paid one is
+ *       kept as the record of what was paid. An admin can delete any ad that
+ *       isn't running or paused (stop it first, so its unused days reach the
+ *       agent's ad credit).
  * @route DELETE /api/ads/:id
  */
 const deleteAd = async (req, res) => {
@@ -445,13 +368,28 @@ const deleteAd = async (req, res) => {
       return res.status(404).json({ success: false, message: "Ad not found" });
     }
 
-    if (
-      ad.user.toString() !== req.user._id.toString() &&
-      req.user.role !== "admin"
-    ) {
+    const isAdmin = req.user.role === "admin";
+    if (ad.user.toString() !== req.user._id.toString() && !isAdmin) {
       return res
         .status(403)
         .json({ success: false, message: "Not authorized" });
+    }
+
+    const isLive =
+      (ad.status === "active" && ad.runningSince) || ad.status === "paused";
+    if (isAdmin && isLive) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Stop this ad first, so its unused days go to the agent's ad credit.",
+      });
+    }
+    if (!isAdmin && ad.isPaid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "A launched ad can't be deleted. It's kept as the record of what was paid.",
+      });
     }
 
     await ad.deleteOne();
@@ -468,12 +406,122 @@ const deleteAd = async (req, res) => {
   }
 };
 
+/**
+ * @desc Featured properties for the home page: up to 8 running ads on
+ *       properties still on the market, in a random order. Each one shown
+ *       counts as a view. Public.
+ * @route GET /api/ads/featured
+ */
+const getFeaturedAds = async (req, res) => {
+  try {
+    await settleExpiredAds();
+
+    const running = await Ad.find({
+      status: "active",
+      runningSince: { $ne: null },
+    })
+      .select("property")
+      .populate(
+        "property",
+        "-adminNotes -flagReason -statusHistory -rejectionReason -legalDocuments",
+      )
+      .lean();
+
+    const takenIds = await Purchase.distinct("property", {
+      property: { $in: running.map((a) => a.property?._id).filter(Boolean) },
+      $or: [{ holdsProperty: true }, { status: { $in: TAKEN_STATUSES } }],
+    });
+    const taken = new Set(takenIds.map((id) => id.toString()));
+
+    const eligible = running.filter(
+      (a) =>
+        a.property &&
+        a.property.status === "approved" &&
+        !a.property.isFlagged &&
+        !taken.has(a.property._id.toString()),
+    );
+
+    // shuffle, so every running ad gets its turn on the page
+    for (let i = eligible.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
+    }
+    const picked = eligible.slice(0, FEATURED_LIMIT);
+
+    if (picked.length > 0) {
+      await Ad.updateMany({ _id: { $in: picked.map((a) => a._id) } }, [
+        { $set: { views: { $add: [{ $ifNull: ["$views", 0] }, 1] } } },
+        {
+          $set: {
+            ctr: {
+              $round: [
+                {
+                  $multiply: [
+                    { $divide: [{ $ifNull: ["$clicks", 0] }, "$views"] },
+                    100,
+                  ],
+                },
+                2,
+              ],
+            },
+          },
+        },
+      ]);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: picked.map((a) => ({
+        adId: a._id,
+        property: { ...a.property, isTaken: false },
+      })),
+    });
+  } catch (err) {
+    console.error("getFeaturedAds error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Count a click on a featured property. Public.
+ * @route POST /api/ads/:id/click
+ */
+const recordAdClick = async (req, res) => {
+  try {
+    await Ad.updateOne({ _id: req.params.id, status: "active" }, [
+      { $set: { clicks: { $add: [{ $ifNull: ["$clicks", 0] }, 1] } } },
+      {
+        $set: {
+          ctr: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$views", 0] }, 0] },
+              {
+                $round: [
+                  { $multiply: [{ $divide: ["$clicks", "$views"] }, 100] },
+                  2,
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+    ]);
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("recordAdClick error:", err);
+    res.status(200).json({ success: false });
+  }
+};
+
 module.exports = {
   createAd,
-  reviewAd,
-  payForAd,
   getAds,
   getAd,
   updateAd,
   deleteAd,
+  getFeaturedAds,
+  recordAdClick,
 };
