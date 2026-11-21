@@ -272,21 +272,16 @@ const getProperty = async (req, res) => {
       const isOwner = viewerId === ownerId;
       const isAdmin = viewerRole === "admin";
 
-      if (!isOwner && !isAdmin) {
-        await Notification.create({
-          user: ownerId,
+      // a view is not saved as a notification (one per view filled every
+      // agent's notifications), and the live event goes to the owner only,
+      // not to everyone connected
+      if (!isOwner && !isAdmin && global.io && ownerId) {
+        global.io.to(ownerId).emit("notification", {
+          type: "property_viewed",
           title: "Property Viewed",
-          message: `Your property "${prop.title}" was viewed.`,
-          meta: { propertyId: prop._id },
+          message: `Someone viewed "${prop.title}".`,
+          propertyId: prop._id,
         });
-
-        if (global.io)
-          global.io.emit("notification", {
-            type: "property_viewed",
-            title: "Property Viewed",
-            message: `Someone viewed "${prop.title}".`,
-            propertyId: prop._id,
-          });
       }
     }
 

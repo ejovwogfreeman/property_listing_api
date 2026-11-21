@@ -536,10 +536,50 @@ const changeTransactionStatus = async (req, res) => {
         )
       : await User.findById(targetUserId);
 
+    // a saved notification as well as the live event, so an agent who is
+    // offline still learns their payout was sent or declined
+    const naira = (n) => `₦${Number(n || 0).toLocaleString()}`;
+    const bank = transaction.bankDetails?.bankName
+      ? ` to ${transaction.bankDetails.bankName}${
+          transaction.bankDetails.accountNumber
+            ? ` (${String(transaction.bankDetails.accountNumber).slice(-4).padStart(10, "•")})`
+            : ""
+        }`
+      : "";
+    let title = "Transaction Status Updated";
+    let message = `Your ${transaction.type.replace(/_/g, " ")} of ${naira(transaction.amount)} is now ${status}.`;
+    if (transaction.type === "withdrawal" && status === "approved") {
+      title = "Withdrawal Paid";
+      message = `Your withdrawal of ${naira(transaction.amount)} has been sent${bank}.`;
+    } else if (transaction.type === "withdrawal" && FINAL.includes(status)) {
+      title = "Withdrawal Declined";
+      message = `Your withdrawal of ${naira(transaction.amount)} was declined. The money is back in your wallet.`;
+    } else if (transaction.type === "wallet_funding" && status === "approved") {
+      title = "Wallet Funded";
+      message = `${naira(transaction.amount)} has been added to your wallet.`;
+    } else if (
+      transaction.type === "wallet_funding" &&
+      FINAL.includes(status)
+    ) {
+      title = "Wallet Funding Declined";
+      message = `Your wallet funding of ${naira(transaction.amount)} could not be confirmed.`;
+    }
+
+    try {
+      await Notification.create({
+        user: targetUserId,
+        title,
+        message,
+        meta: { transactionId: transaction._id },
+      });
+    } catch (err) {
+      console.error("changeTransactionStatus notification error:", err);
+    }
+
     notifyUser(targetUserId, "notification", {
       type: "transaction_status_changed",
-      title: "Transaction Status Updated",
-      message: `Your ${transaction.type} status has been updated to ${status}.`,
+      title,
+      message,
       transactionId: transaction._id,
       status,
     });
