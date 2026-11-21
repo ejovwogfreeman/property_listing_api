@@ -1,5 +1,5 @@
 const Purchase = require("../models/purchase");
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 const Inspection = require("../models/inspection");
 const User = require("../models/user");
 const Escrow = require("../models/escrow");

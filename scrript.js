@@ -1,46 +1,54 @@
-// One-off: set every property's platform fee (escrowFee) from the agreed rates.
-// Run with: node backfill-platform-fees.js         (list only)
-//           node backfill-platform-fees.js --apply (list and update)
 require("dotenv").config();
 const mongoose = require("mongoose");
-const Property = require("./models/property");
-const { calculatePlatformFee } = require("./middlewares/platformFee");
+const Escrow = require("./models/escrow");
+const Purchase = require("./models/purchase");
+const Inspection = require("./models/inspection");
 
-(async () => {
-  await mongoose.connect(process.env.MONGO_URI);
+async function run() {
+  // Use your database connection string variable from .env (commonly MONGO_URI or MONGODB_URI)
+  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error("Missing MONGO_URI or MONGODB_URI in .env file");
+  }
 
-  const props = await Property.find(
-    {},
-    "title price listingType escrowFee",
-  ).lean();
-  const changes = props
-    .map((p) => ({
-      id: String(p._id),
-      title: p.title,
-      listingType: p.listingType,
-      price: p.price,
-      oldFee: p.escrowFee ?? null,
-      newFee: calculatePlatformFee(p.price, p.listingType),
-    }))
-    .filter((c) => c.oldFee !== c.newFee);
+  await mongoose.connect(mongoUri);
+  console.log("Connected to MongoDB...");
 
-  console.table(changes);
+  const refunded = await Escrow.find({ status: "refunded" });
+  console.log(`Found ${refunded.length} refunded escrow record(s).`);
 
-  if (process.argv.includes("--apply")) {
-    for (const c of changes) {
-      // updateOne skips the pre-save hook, so codes and history are untouched
-      await Property.updateOne(
-        { _id: c.id },
-        { $set: { escrowFee: c.newFee } },
-      );
-    }
-    console.log(`Updated ${changes.length} properties`);
-  } else {
-    console.log("List only. Run again with --apply to update them.");
+  for (const e of refunded) {
+    const record = e.purchase
+      ? await Purchase.findById(e.purchase)
+      : e.inspection
+        ? await Inspection.findById(e.inspection)
+        : null;
+
+    if (!record || !record.refundDue) continue; // finished properly
+
+    await Escrow.updateOne(
+      { _id: e._id, status: "refunded" },
+      {
+        $set: { status: "refund_pending" },
+        $unset: {
+          refundedAt: 1,
+          refundedAmount: 1,
+          refundProcessingFee: 1,
+          transferReference: 1,
+          refundNote: 1,
+          releasedAt: 1,
+          releasedBy: 1,
+        },
+      },
+    );
+    console.log("Reopened refund for escrow:", e._id.toString());
   }
 
   await mongoose.disconnect();
-})().catch((err) => {
-  console.error(err);
+  console.log("Done and disconnected.");
+}
+
+run().catch((err) => {
+  console.error("Script error:", err);
   process.exit(1);
 });

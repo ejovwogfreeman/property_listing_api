@@ -1,6 +1,6 @@
 const Inspection = require("../models/inspection");
 const Purchase = require("../models/purchase");
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 const User = require("../models/user");
 const Escrow = require("../models/escrow");
 const Notification = require("../models/notification");
@@ -12,6 +12,7 @@ const {
 const crypto = require("crypto");
 const { processPurchasePaymentConfirmation } = require("./purchase");
 const { recordWalletFunding } = require("./transaction");
+const { handleRefundWebhook } = require("./paystackRefund");
 const { calculateRefundFee } = require("../middlewares/platformFee");
 const {
   isPropertyTakenByOther,
@@ -778,6 +779,11 @@ const handlePaystackWebhook = async (req, res) => {
       if (data.metadata?.purpose === "wallet_funding") {
         await recordWalletFunding(reference, data); // see section 6
       }
+    }
+
+    // a refund sent from the dashboard moved on (processed or failed)
+    if (event && String(event.event || "").startsWith("refund.")) {
+      await handleRefundWebhook(event);
     }
 
     res.status(200).json({ received: true });

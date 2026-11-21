@@ -533,6 +533,7 @@ const completeEscrowRefund = async (req, res) => {
           refundProcessingFee: fee,
           transferReference,
           refundNote: note,
+          refundMethod: "manual",
           releasedAt: new Date(),
           releasedBy: adminId,
         },
@@ -561,8 +562,9 @@ const completeEscrowRefund = async (req, res) => {
       amount: escrow.refundedAmount || escrow.amount,
       type: "escrow_refund",
       status: "completed",
-      reference:
-        transferReference || `${escrow.reference}-refund-${Date.now()}`,
+      // always our own unique id: the admin's bank transfer reference is free
+      // text and can repeat. It is kept on the escrow as transferReference.
+      reference: `${escrow.reference}-refund-${Date.now()}`,
     });
 
     const refundRecord = {

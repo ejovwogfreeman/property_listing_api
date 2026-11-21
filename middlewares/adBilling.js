@@ -1,6 +1,6 @@
 const Ad = require("../models/ads");
 const User = require("../models/user");
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 const Purchase = require("../models/purchase");
 const Transaction = require("../models/transaction");
 const Notification = require("../models/notification");

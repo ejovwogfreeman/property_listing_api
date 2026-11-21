@@ -3,7 +3,7 @@ const Inspection = require("../models/inspection");
 const Escrow = require("../models/escrow");
 const User = require("../models/user");
 const Notification = require("../models/notification");
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 
 // A buyer has paid for the property (same list as controllers/property.js)
 const TAKEN_STATUSES = [

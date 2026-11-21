@@ -56,8 +56,12 @@ const DisputeSchema = new Schema(
       default: () => `DSP-${Math.floor(100000 + Math.random() * 900000)}`,
     },
     property: { type: Schema.Types.ObjectId, ref: "Property", required: true },
+    // the buyer and the agent of the deal, whoever opened the dispute
     user: { type: Schema.Types.ObjectId, ref: "User", required: true },
     agent: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    // who opened it, and as which side ("user" = the buyer, or "agent")
+    openedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    openedByRole: { type: String, enum: ["user", "agent"], default: "user" },
     admin: { type: Schema.Types.ObjectId, ref: "User" },
     purchase: { type: Schema.Types.ObjectId, ref: "Purchase" },
     inspection: { type: Schema.Types.ObjectId, ref: "Inspection" },
@@ -110,6 +114,10 @@ const DisputeSchema = new Schema(
   },
   { timestamps: true },
 );
+
+// one open dispute per deal: looked up when a new one is opened
+DisputeSchema.index({ purchase: 1, status: 1 });
+DisputeSchema.index({ inspection: 1, status: 1 });
 
 const Dispute =
   mongoose.models.Dispute || mongoose.model("Dispute", DisputeSchema);

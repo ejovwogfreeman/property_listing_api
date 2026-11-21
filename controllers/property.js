@@ -1,4 +1,4 @@
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 const User = require("../models/user");
 const Notification = require("../models/notification");
 const { uploadImages, uploadVideos } = require("../middlewares/cloudinary");

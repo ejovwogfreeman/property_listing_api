@@ -1,5 +1,5 @@
 const Favorite = require("../models/favorite");
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 const Notification = require("../models/notification");
 
 // Add a property to favorites

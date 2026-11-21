@@ -38,6 +38,17 @@ const EscrowSchema = new Schema(
     transferReference: { type: String, default: null },
     refundNote: { type: String, default: null },
     refundProcessingFee: { type: Number, default: 0 },
+    // --- Paystack refunds (sent from the admin dashboard) ---
+    // "manual": the admin sent a bank transfer and recorded it.
+    // "paystack": refunded to the buyer's card/account through Paystack.
+    refundMethod: {
+      type: String,
+      enum: ["manual", "paystack", null],
+      default: null,
+    },
+    paystackRefundId: { type: String, default: null },
+    // Paystack's own status: pending, processing, processed or failed
+    paystackRefundStatus: { type: String, default: null },
 
     reason: { type: String, default: null },
     // no processing fee on this refund (e.g. the property was secured by

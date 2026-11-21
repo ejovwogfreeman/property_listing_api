@@ -10,6 +10,10 @@ const {
   approveEscrowRefund,
   completeEscrowRefund,
 } = require("../controllers/escrow");
+const {
+  refundEscrowViaPaystack,
+  refundRecordViaPaystack,
+} = require("../controllers/paystackRefund");
 const { protect, authorize } = require("../middlewares/auth");
 
 router.get("/", protect, authorize("admin"), getAllEscrows);
@@ -39,6 +43,24 @@ router.patch(
   authorize("admin"),
   upload.none(),
   completeEscrowRefund,
+);
+
+// Refund straight through Paystack (instead of a manual bank transfer)
+// Body: { waiveProcessingFee?, note? }
+router.post(
+  "/paystack-refund/:kind/:id",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  refundRecordViaPaystack,
+);
+
+router.post(
+  "/:id/paystack-refund",
+  protect,
+  authorize("admin"),
+  upload.none(),
+  refundEscrowViaPaystack,
 );
 
 module.exports = router;

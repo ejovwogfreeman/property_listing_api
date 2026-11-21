@@ -1,5 +1,5 @@
 const Ad = require("../models/ads");
-const Property = require("../models/property");
+const Property = require("../models/property.js");
 const Purchase = require("../models/purchase");
 const {
   DAY_MS,
