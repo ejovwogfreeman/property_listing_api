@@ -93,6 +93,7 @@ const createProperty = async (req, res) => {
       address,
       propertyType,
       listingType,
+      buildingType,
       landSize,
       landUnit,
       landCondition,
@@ -156,6 +157,7 @@ const createProperty = async (req, res) => {
       landCondition: propertyType === "land" ? landCondition : null,
       landDocTitle: propertyType === "land" ? landDocTitle : null,
       landType: propertyType === "land" ? landType : null,
+      buildingType: propertyType !== "land" ? buildingType || null : null,
       legalDocuments: legalDocuments,
       bedroom: propertyType !== "land" ? bedroom : null,
       bathroom: propertyType !== "land" ? bathroom : null,
@@ -339,6 +341,7 @@ const updateProperty = async (req, res) => {
       address,
       propertyType,
       listingType,
+      buildingType,
       landSize,
       landUnit,
       landCondition,
@@ -391,7 +394,9 @@ const updateProperty = async (req, res) => {
       prop.bedroom = null;
       prop.bathroom = null;
       prop.kitchen = null;
+      prop.buildingType = null;
     } else {
+      if (buildingType !== undefined) prop.buildingType = buildingType || null;
       if (bedroom !== undefined) prop.bedroom = bedroom;
       if (bathroom !== undefined) prop.bathroom = bathroom;
       if (kitchen !== undefined) prop.kitchen = kitchen;

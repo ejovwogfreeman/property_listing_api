@@ -1,1095 +1,248 @@
-# Backend: notifications
+# 1. Building type for listings
 
-Built from the current backend (`3c1c87f`). Each file below is the **complete file**: replace the whole file with it.
+The frontend now asks agents what kind of building they're listing. It sends a new field, `buildingType`, on create (`POST /property`, form data) and on edit (`PUT /property/:id`, JSON). It only sends it for buildings (`propertyType: "apartment"`), never for land.
 
-The frontend now has a notification bell for buyers, agents and admins. Clicking a notification opens the page it is about, using the ids in `meta`. Two backend changes make that work properly.
+**Values** (must match exactly):
 
-## 1. Payouts: save a notification when a withdrawal is paid or declined (needed)
+| value          | shown as     |
+| -------------- | ------------ |
+| `self_contain` | Self-contain |
+| `mini_flat`    | Mini flat    |
+| `flat`         | Flat         |
+| `bungalow`     | Bungalow     |
+| `duplex`       | Duplex       |
+| `terrace`      | Terrace      |
+| `penthouse`    | Penthouse    |
+| `commercial`   | Commercial   |
 
-When the admin pays or declines a withdrawal, `changeTransactionStatus` only sends a live socket event (_"Transaction Status Updated"_). Nothing is saved. An agent who isn't online at that moment never learns that their payout was sent, or that it was declined and the money returned.
+**What changes** (built from your latest commit, 4706d7c; replace both files in full):
 
-**The fix:** it now also saves a notification, with a clear title and message:
+- `models/property.js`: a new `buildingType` field (an enum of the values above, plus `null`; the default is `null`). Older listings simply have none, so no migration is needed.
+- `controllers/property.js`:
+  - `createProperty` saves `buildingType` for buildings, and `null` for land.
+  - `updateProperty` updates it for buildings and clears it when a listing is land.
+  - Nothing else changes. `getProperty` and the list endpoints already return every field.
 
-| Change                           | Title                      | Message                                                                    |
-| -------------------------------- | -------------------------- | -------------------------------------------------------------------------- |
-| withdrawal approved              | Withdrawal Paid            | Your withdrawal of ₦50,000 has been sent to GTBank (••••••1234).           |
-| withdrawal declined / failed     | Withdrawal Declined        | Your withdrawal of ₦50,000 was declined. The money is back in your wallet. |
-| wallet funding approved          | Wallet Funded              | ₦20,000 has been added to your wallet.                                     |
-| wallet funding declined / failed | Wallet Funding Declined    | Your wallet funding of ₦20,000 could not be confirmed.                     |
-| anything else                    | Transaction Status Updated | Your agent payment of ₦… is now approved.                                  |
+**To test**
 
-`meta.transactionId` is set, so the agent's bell opens their wallet. The live event still goes out, now with the same title and message. Only the end of `changeTransactionStatus` changes.
+1. Add a building as an agent and pick "Duplex". The response and `GET /property/:id` show `buildingType: "duplex"`.
+2. Edit it to "Flat". It saves.
+3. Add a land listing. `buildingType` is `null`.
+4. Send a value that isn't in the list (e.g. `"castle"`). It's rejected with a validation error.
 
-## 2. Listing views: stop saving a notification per view, and stop broadcasting it (strongly recommended)
+---
 
-Every time someone opens a listing, `getProperty` does two things:
-
-- **Saves a "Property Viewed" notification** for the agent. On a busy listing that means hundreds of notifications that bury the ones that matter (payments, inspections, disputes). The frontend now hides them, but they still fill the database.
-- **Sends the live event to every connected user** on the platform (`global.io.emit`), not just the agent who owns the listing. Every buyer, agent and admin receives it for every view, which is wasted traffic and lets anyone see which listings are being viewed.
-
-**The fix:** the view is no longer saved as a notification, and the live event goes only to the owner (`global.io.to(ownerId)`). If you want to show agents how many views a listing gets, a view counter on the property is the better tool. Nothing else in `property.js` changes.
-
-## Files
-
-### `controllers/transaction.js`
+## models/property.js
 
 ```js
-const User = require("../models/user");
-const Notification = require("../models/notification");
-const Transaction = require("../models/transaction");
-const Inspection = require("../models/inspection");
-const Purchase = require("../models/purchase");
-const Escrow = require("../models/escrow");
-const {
-  initializeTransaction,
-  verifyTransaction,
-} = require("../middlewares/paystack");
-const crypto = require("crypto");
+const mongoose = require("mongoose");
+const Counter = require("./counter");
 
-// Helper for targeted socket notifications with error isolation
-const notifyUser = (userId, event, data) => {
-  try {
-    if (global.io && userId) {
-      global.io.to(userId.toString()).emit(event, data);
-    }
-  } catch (err) {
-    console.error("Socket notification error:", err);
-  }
-};
-
-// ---------------------------
-// 1️⃣ Wallet Funding: Initializes Paystack WITHOUT creating a premature Transaction
-// ---------------------------
-const walletFunding = async (req, res) => {
-  try {
-    const { amount, callback_url } = req.body;
-    const userId = req.user._id;
-
-    if (!amount || amount <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid amount" });
-    }
-
-    const reference = crypto.randomBytes(16).toString("hex");
-    const amountInKobo = Math.round(amount * 100);
-
-    // Initialize Paystack with metadata for webhook/callback tracking
-    const init = await initializeTransaction(
-      req.user.email,
-      amountInKobo,
-      reference,
-      callback_url,
-      { userId: userId.toString(), purpose: "wallet_funding" },
-    );
-
-    if (!init || !init.status || !init.data?.authorization_url) {
-      return res.status(400).json({
-        success: false,
-        message: "Failed to initialize Paystack transaction.",
-      });
-    }
-
-    return res.json({
-      success: true,
-      authorizationUrl: init.data.authorization_url,
-      reference,
-      callback_url,
-    });
-  } catch (err) {
-    console.error("walletFunding error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ---------------------------
-// 1️⃣.1 Confirm Wallet Funding (User callback / Webhook helper)
-// ---------------------------
-// const confirmFundWallet = async (req, res) => {
-//   try {
-//     const { reference } = req.body;
-//     const userId = req.user._id;
-
-//     if (!reference) {
-//       return res
-//         .status(400)
-//         .json({ success: false, message: "Reference is required" });
-//     }
-
-//     const verification = await verifyTransaction(reference);
-//     if (!verification || verification.data.status !== "success") {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Payment not successful or verification failed",
-//       });
-//     }
-
-//     // Check metadata ownership
-//     const meta = verification.data.metadata || {};
-//     const metaUserId = meta.userId;
-//     if (
-//       meta.purpose !== "wallet_funding" ||
-//       !metaUserId ||
-//       (metaUserId !== userId.toString() && req.user.role !== "admin")
-//     ) {
-//       return res
-//         .status(403)
-//         .json({ success: false, message: "Unauthorized transaction owner" });
-//     }
-
-//     const targetUserId = metaUserId || userId;
-//     const paidAmount = verification.data.amount / 100;
-
-//     // Idempotency: check if transaction already exists
-//     let transaction = await Transaction.findOne({ reference });
-//     if (transaction) {
-//       return res.json({
-//         success: true,
-//         status: transaction.status,
-//         message: "Transaction already recorded.",
-//         transaction,
-//       });
-//     }
-
-//     // Create pending transaction awaiting admin approval
-//     try {
-//       transaction = await Transaction.create({
-//         from: targetUserId,
-//         to: targetUserId,
-//         amount: paidAmount,
-//         type: "wallet_funding",
-//         status: "pending",
-//         reference,
-//       });
-//     } catch (createErr) {
-//       if (createErr.code === 11000) {
-//         transaction = await Transaction.findOne({ reference });
-//         return res.json({
-//           success: true,
-//           status: transaction.status,
-//           transaction,
-//         });
-//       }
-//       throw createErr;
-//     }
-
-//     await Notification.create({
-//       user: targetUserId,
-//       title: "Wallet Funding Payment Received",
-//       message: `Your payment of ₦${paidAmount} was received and is pending admin approval.`,
-//       meta: { transactionId: transaction._id },
-//     });
-
-//     notifyUser(targetUserId, "notification", {
-//       type: "wallet_funding_pending",
-//       title: "Wallet Funding Pending Review",
-//       message: `Your wallet funding payment is awaiting admin approval.`,
-//       transactionId: transaction._id,
-//     });
-
-//     return res.json({
-//       success: true,
-//       status: "pending",
-//       message: "Payment verified and submitted for admin approval.",
-//       transaction,
-//     });
-//   } catch (err) {
-//     console.error("confirmFundWallet error:", err);
-//     return res.status(500).json({ success: false, message: err.message });
-//   }
-// };
-
-// Paystack may return metadata as an object or as a JSON string
-const parseMetadata = (metadata) => {
-  if (!metadata) return {};
-  if (typeof metadata === "string") {
-    try {
-      return JSON.parse(metadata);
-    } catch {
-      return {};
-    }
-  }
-  return metadata;
-};
-
-// Records a successful Paystack wallet funding as a pending Transaction for
-// the admin to approve. Used by confirmFundWallet and the Paystack webhook.
-// requesterId: the logged-in user (null for the webhook or an admin).
-// Throws an error with .status for "not a wallet funding" / "not yours".
-const recordWalletFunding = async (reference, paystackData, requesterId) => {
-  const meta = parseMetadata(paystackData.metadata);
-  if (meta.purpose !== "wallet_funding" || !meta.userId) {
-    const err = new Error("This payment is not a wallet funding.");
-    err.status = 400;
-    throw err;
-  }
-  if (requesterId && meta.userId !== requesterId.toString()) {
-    const err = new Error("Unauthorized transaction owner");
-    err.status = 403;
-    throw err;
-  }
-
-  // Idempotency: callback and webhook can both arrive
-  const existing = await Transaction.findOne({ reference });
-  if (existing) return { transaction: existing, created: false };
-
-  const paidAmount = paystackData.amount / 100;
-  let transaction;
-  try {
-    transaction = await Transaction.create({
-      from: meta.userId,
-      to: meta.userId,
-      amount: paidAmount,
-      type: "wallet_funding",
-      status: "pending",
-      reference,
-    });
-  } catch (createErr) {
-    if (createErr.code === 11000) {
-      return {
-        transaction: await Transaction.findOne({ reference }),
-        created: false,
-      };
-    }
-    throw createErr;
-  }
-
-  await Notification.create({
-    user: meta.userId,
-    title: "Wallet Funding Payment Received",
-    message: `Your payment of ₦${paidAmount} was received and is pending admin approval.`,
-    meta: { transactionId: transaction._id },
-  });
-
-  notifyUser(meta.userId, "notification", {
-    type: "wallet_funding_pending",
-    title: "Wallet Funding Pending Review",
-    message: `Your wallet funding payment is awaiting admin approval.`,
-    transactionId: transaction._id,
-  });
-
-  // tell the admins: the reports page (and its sidebar count) refreshes on this
-  const funder = await User.findById(meta.userId).select("name");
-  const fundingAdmins = await User.find({ role: "admin" }).select("_id");
-  const fundingMessage = `${funder?.name || "An agent"} funded their wallet with ₦${paidAmount.toLocaleString()}. Confirm the payment to add it to their balance.`;
-  for (const admin of fundingAdmins) {
-    await Notification.create({
-      user: admin._id,
-      title: "Wallet Funding to Confirm",
-      message: fundingMessage,
-      meta: { transactionId: transaction._id },
-    });
-    notifyUser(admin._id, "notification", {
-      type: "wallet_funding_pending",
-      title: "Wallet Funding to Confirm",
-      message: fundingMessage,
-      transactionId: transaction._id,
-    });
-  }
-
-  return { transaction, created: true };
-};
-
-// ---------------------------
-// 1️⃣.1 Confirm Wallet Funding (agent's return from Paystack)
-// ---------------------------
-const confirmFundWallet = async (req, res) => {
-  try {
-    const { reference } = req.body;
-
-    if (!reference) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Reference is required" });
-    }
-
-    let verification;
-    try {
-      verification = await verifyTransaction(reference);
-    } catch (netErr) {
-      // Paystack unreachable: the webhook will record it
-      console.error("Paystack network error during wallet confirm:", netErr);
-      return res.json({ success: true, status: "processing" });
-    }
-
-    if (!verification || verification.data.status !== "success") {
-      return res.status(400).json({
-        success: false,
-        message: "Payment not successful or verification failed",
-      });
-    }
-
-    const requesterId = req.user.role === "admin" ? null : req.user._id;
-    const { transaction, created } = await recordWalletFunding(
-      reference,
-      verification.data,
-      requesterId,
-    );
-
-    return res.json({
-      success: true,
-      status: transaction.status,
-      message: created
-        ? "Payment verified and submitted for admin approval."
-        : "Transaction already recorded.",
-      transaction,
-    });
-  } catch (err) {
-    if (err.status) {
-      return res
-        .status(err.status)
-        .json({ success: false, message: err.message });
-    }
-    console.error("confirmFundWallet error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ---------------------------
-// 2️⃣ Verify Wallet Funding (Admin Approval - Atomic & Idempotent)
-// ---------------------------
-const verifyWalletFunding = async (req, res) => {
-  try {
-    const { reference } = req.body;
-
-    if (!reference) {
-      return res.status(400).json({ message: "Reference is required" });
-    }
-
-    const transaction = await Transaction.findOne({ reference });
-    if (!transaction) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
-
-    if (transaction.type !== "wallet_funding") {
-      return res.status(400).json({ message: "Invalid transaction type" });
-    }
-
-    // Idempotency: already approved returns 200 gracefully
-    if (
-      transaction.status === "approved" ||
-      transaction.status === "completed"
-    ) {
-      const user = await User.findById(transaction.to);
-      return res.status(200).json({
-        success: true,
-        message: "Transaction already approved and credited.",
-        balance: user?.balance,
-        transaction,
-      });
-    }
-
-    const verification = await verifyTransaction(reference);
-    if (!verification || verification.data.status !== "success") {
-      return res
-        .status(400)
-        .json({ message: "Paystack payment verification failed." });
-    }
-
-    const expectedAmountInKobo = Math.round(transaction.amount * 100);
-    if (verification.data.amount !== expectedAmountInKobo) {
-      return res.status(400).json({
-        message: "Amount mismatch between transaction and Paystack record.",
-      });
-    }
-
-    // Atomic credit with $inc to prevent double-crediting
-    const user = await User.findByIdAndUpdate(
-      transaction.to,
-      { $inc: { balance: transaction.amount } },
-      { new: true },
-    );
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    transaction.status = "approved";
-    transaction.approvedAt = new Date();
-    await transaction.save();
-
-    await Notification.create({
-      user: user._id,
-      title: "Wallet Funded",
-      message: `₦${transaction.amount} has been added to your wallet successfully by admin.`,
-      meta: { transactionId: transaction._id },
-    });
-
-    notifyUser(user._id, "notification", {
-      type: "wallet_funded",
-      title: "Wallet Credited",
-      message: `₦${transaction.amount} has been credited to your wallet.`,
-      balance: user.balance,
-      transactionId: transaction._id,
-    });
-
-    return res.json({
-      success: true,
-      message: "Wallet funded successfully",
-      balance: user.balance,
-      transaction,
-    });
-  } catch (err) {
-    console.error("verifyWalletFunding error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-const payAgent = async (req, res) => {
-  try {
-    const { agentId, amount } = req.body;
-    const adminId = req.user._id;
-
-    if (!agentId || !amount || amount <= 0) {
-      return res
-        .status(400)
-        .json({ message: "Agent and valid amount are required" });
-    }
-
-    // Atomic agent balance credit
-    const agent = await User.findByIdAndUpdate(
-      agentId,
-      { $inc: { balance: amount } },
-      { new: true },
-    );
-
-    if (!agent) {
-      return res.status(404).json({ message: "Agent not found" });
-    }
-
-    const reference = crypto.randomBytes(16).toString("hex");
-
-    const transaction = await Transaction.create({
-      from: adminId,
-      to: agentId,
-      amount,
-      type: "agent_payment",
-      status: "approved",
-      reference,
-      approvedAt: new Date(),
-    });
-
-    await Notification.create({
-      user: agentId,
-      title: "You received a payment",
-      message: `You have been paid ₦${amount} by admin.`,
-      meta: { transactionId: transaction._id },
-    });
-
-    notifyUser(agentId, "notification", {
-      type: "agent_payment",
-      title: "Agent Paid",
-      message: `You received ₦${amount} from admin.`,
-      balance: agent.balance,
-      transactionId: transaction._id,
-    });
-
-    return res.json({
-      success: true,
-      message: "Agent paid successfully",
-      transaction,
-      balance: agent.balance,
-    });
-  } catch (err) {
-    console.error("payAgent error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ---------------------------
-// 3️⃣ Change Transaction Status (Safely handles withdrawal refunds once)
-// ---------------------------
-const changeTransactionStatus = async (req, res) => {
-  try {
-    const { transactionId, status } = req.body;
-
-    if (!["pending", "approved", "declined", "failed"].includes(status)) {
-      return res.status(400).json({ message: "Invalid status" });
-    }
-
-    const transaction = await Transaction.findById(transactionId);
-    if (!transaction) {
-      return res.status(404).json({ message: "Transaction not found" });
-    }
-
-    const previousStatus = transaction.status;
-    if (previousStatus === status) {
-      return res.json({
-        success: true,
-        message: `Transaction is already ${status}`,
-        transaction,
-      });
-    }
-
-    // A declined or failed withdrawal has already given the money back, so
-    // it can't be changed again (that would pay it back a second time)
-    const FINAL = ["failed", "declined"];
-    if (transaction.type === "withdrawal" && FINAL.includes(previousStatus)) {
-      return res.status(400).json({
-        message:
-          "This withdrawal was already declined and the money returned to the agent.",
-      });
-    }
-
-    // Claim the change atomically so two clicks can't both apply it
-    const claimed = await Transaction.findOneAndUpdate(
-      { _id: transaction._id, status: previousStatus },
+const propertySchema = new mongoose.Schema(
+  {
+    code: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    title: {
+      type: String,
+      required: true,
+    },
+    price: {
+      type: Number,
+      required: true,
+    },
+    escrowFee: {
+      type: Number,
+    },
+    address: {
+      type: String,
+      required: true,
+    },
+    images: {
+      type: [String],
+      default: [],
+    },
+    videos: {
+      type: [String],
+      default: [],
+    },
+    propertyType: {
+      type: String,
+      required: true,
+      enum: ["land", "apartment", "duplex", "bungalow"],
+    },
+    listingType: {
+      type: String,
+      required: true,
+      enum: ["rent", "sale"],
+    },
+    // the kind of building (buildings only; null for land and for older
+    // listings made before this field existed)
+    buildingType: {
+      type: String,
+      enum: [
+        "self_contain",
+        "mini_flat",
+        "flat",
+        "bungalow",
+        "duplex",
+        "terrace",
+        "penthouse",
+        "commercial",
+        null,
+      ],
+      default: null,
+    },
+    landSize: {
+      type: String,
+    },
+    landUnit: {
+      type: String,
+      enum: ["sqm", "acres", "hectares"],
+    },
+    landCondition: {
+      type: String,
+      enum: ["bare land", "fenced land", "land with structure"],
+    },
+    landDocTitle: {
+      type: String,
+      enum: [
+        "Certificate of Ownership",
+        "Governor's Consent",
+        "Deed of Assignment",
+      ],
+    },
+    landType: {
+      type: String,
+      enum: ["residential", "commercial", "agriculture"],
+    },
+    legalDocuments: {
+      type: [String],
+      default: [],
+    },
+    bedroom: {
+      type: Number,
+    },
+    bathroom: {
+      type: Number,
+    },
+    kitchen: {
+      type: Number,
+    },
+    description: {
+      type: String,
+    },
+    inspectionFee: {
+      type: Number,
+    },
+    serviceCharge: {
+      type: Number,
+    },
+    nearbyPlaces: {
+      type: [String],
+      default: [],
+    },
+    status: {
+      type: String,
+      // enum: ["pending", "approved", "rejected"],
+      // sold: the buyer completed the handover (shown as "Rented" for rent
+      // listings). set by syncPropertySold, never by hand
+      enum: ["pending", "approved", "rejected", "sold"],
+      default: "pending",
+    },
+    // 👈 ADD THIS FIELD TO YOUR SCHEMA
+    rejectionReason: {
+      type: String,
+      default: null,
+    },
+    // --- BUG 8: Flagging Fields ---
+    isFlagged: {
+      type: Boolean,
+      default: false,
+    },
+    flagReason: {
+      type: String,
+      default: null,
+    },
+    flaggedAt: {
+      type: Date,
+      default: null,
+    },
+    // --- BUG 9: Admin Notes ---
+    adminNotes: [
       {
-        $set: {
-          status,
-          ...(status === "approved" ? { approvedAt: new Date() } : {}),
+        note: { type: String, required: true },
+        author: {
+          _id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+          name: { type: String },
         },
+        createdAt: { type: Date, default: Date.now },
       },
-      { new: true },
-    );
-    if (!claimed) {
-      return res.status(409).json({
-        message:
-          "This transaction was just changed by someone else. Refresh and try again.",
-      });
-    }
+    ],
+    // --- BUG 10: Status History ---
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        at: { type: Date, default: Date.now },
+        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
+    owner: {
+      _id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+      },
+      name: {
+        type: String,
+        required: true,
+      },
+      profilePicture: {
+        type: [String],
+        default: [],
+      },
+      isVerified: {
+        type: Boolean,
+        default: false,
+      },
+      rating: {
+        type: Number,
+        default: 0,
+      },
+      totalListings: {
+        type: Number,
+        default: 0,
+      },
+    },
+  },
+  { timestamps: true },
+);
 
-    const targetUserId = transaction.to || transaction.from;
-
-    // How much the user's balance moves
-    let delta = 0;
-    if (transaction.type === "withdrawal") {
-      // The amount was taken at request time. Approving changes nothing
-      // (the admin pays offline); declining or failing gives it back once.
-      if (FINAL.includes(status)) delta = transaction.amount;
-    } else if (previousStatus === "approved") {
-      // wallet funding / agent payment reversed
-      delta = -transaction.amount;
-    } else if (status === "approved") {
-      delta = transaction.amount;
-    }
-
-    const user = delta
-      ? await User.findByIdAndUpdate(
-          targetUserId,
-          { $inc: { balance: delta } },
-          { new: true },
-        )
-      : await User.findById(targetUserId);
-
-    // a saved notification as well as the live event, so an agent who is
-    // offline still learns their payout was sent or declined
-    const naira = (n) => `₦${Number(n || 0).toLocaleString()}`;
-    const bank = transaction.bankDetails?.bankName
-      ? ` to ${transaction.bankDetails.bankName}${
-          transaction.bankDetails.accountNumber
-            ? ` (${String(transaction.bankDetails.accountNumber).slice(-4).padStart(10, "•")})`
-            : ""
-        }`
-      : "";
-    let title = "Transaction Status Updated";
-    let message = `Your ${transaction.type.replace(/_/g, " ")} of ${naira(transaction.amount)} is now ${status}.`;
-    if (transaction.type === "withdrawal" && status === "approved") {
-      title = "Withdrawal Paid";
-      message = `Your withdrawal of ${naira(transaction.amount)} has been sent${bank}.`;
-    } else if (transaction.type === "withdrawal" && FINAL.includes(status)) {
-      title = "Withdrawal Declined";
-      message = `Your withdrawal of ${naira(transaction.amount)} was declined. The money is back in your wallet.`;
-    } else if (transaction.type === "wallet_funding" && status === "approved") {
-      title = "Wallet Funded";
-      message = `${naira(transaction.amount)} has been added to your wallet.`;
-    } else if (
-      transaction.type === "wallet_funding" &&
-      FINAL.includes(status)
-    ) {
-      title = "Wallet Funding Declined";
-      message = `Your wallet funding of ${naira(transaction.amount)} could not be confirmed.`;
-    }
-
-    try {
-      await Notification.create({
-        user: targetUserId,
-        title,
-        message,
-        meta: { transactionId: transaction._id },
-      });
-    } catch (err) {
-      console.error("changeTransactionStatus notification error:", err);
-    }
-
-    notifyUser(targetUserId, "notification", {
-      type: "transaction_status_changed",
-      title,
-      message,
-      transactionId: transaction._id,
-      status,
-    });
-
-    return res.json({
-      success: true,
-      message: `Transaction updated to ${status}`,
-      transaction: claimed,
-      balance: user?.balance,
-    });
-  } catch (err) {
-    console.error("changeTransactionStatus error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// Helper function to attach the first property image
-const attachFirstPropertyImage = (item) => {
-  if (item.property) {
-    item.property.image =
-      item.property.images && item.property.images.length > 0
-        ? item.property.images[0]
-        : null;
-  }
-  return item;
-};
-
-const getUserTransactionsAndEscrows = async (req, res) => {
+// --- PRE-SAVE HOOK: Auto-generate Code & Track Status History ---
+propertySchema.pre("save", async function (next) {
   try {
-    const userId = req.user._id;
-
-    const [transactions, escrows] = await Promise.all([
-      Transaction.find({
-        $or: [{ from: userId }, { to: userId }],
-      })
-        .populate("from", "name email phoneNumber profilePicture")
-        .populate("to", "name email phoneNumber profilePicture")
-        .lean(),
-
-      Escrow.find({ buyer: userId })
-        .populate("property", "title price address images")
-        .populate("buyer", "name email phoneNumber profilePicture")
-        .populate("seller", "name email phoneNumber profilePicture")
-        .lean(),
-    ]);
-
-    const taggedTransactions = transactions.map((item) => ({
-      ...item,
-      recordType: "transaction",
-    }));
-    const taggedEscrows = escrows.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "escrow" };
-    });
-
-    const allActivities = [...taggedTransactions, ...taggedEscrows];
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getUserTransactionsAndEscrows error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// Hides unpaid/draft inspections (`none`, `inspection_requested`, `inspection_initialized`) and purchases (`none`)
-const getUserPurchasesAndInspections = async (req, res) => {
-  try {
-    const userId = req.user._id;
-
-    const [purchases, inspections] = await Promise.all([
-      Purchase.find({
-        buyer: userId,
-        status: { $nin: ["none"] },
-      })
-        .populate("property", "title price address images")
-        .populate("buyer", "name email phoneNumber profilePicture")
-        .populate("owner", "name email phoneNumber profilePicture")
-        .lean(),
-
-      Inspection.find({
-        user: userId,
-        status: {
-          $nin: ["none", "inspection_requested", "inspection_initialized"],
-        },
-      })
-        .populate("property", "title price address images")
-        .populate("user", "name email phoneNumber profilePicture")
-        .populate("owner", "name email phoneNumber profilePicture")
-        .lean(),
-    ]);
-
-    const taggedPurchases = purchases.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "purchase" };
-    });
-    const taggedInspections = inspections.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "inspection" };
-    });
-
-    const allActivities = [...taggedPurchases, ...taggedInspections];
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getUserPurchasesAndInspections error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-const getAgentTransactionsAndEscrows = async (req, res) => {
-  try {
-    const agentId = req.params.agentId || req.user._id;
-
-    const [transactions, escrows] = await Promise.all([
-      Transaction.find({
-        $or: [{ to: agentId }, { from: agentId }],
-      })
-        .populate("from", "name email phoneNumber profilePicture")
-        .populate("to", "name email phoneNumber profilePicture")
-        .lean(),
-
-      Escrow.find({ seller: agentId })
-        .populate("property", "title price address images")
-        .populate("buyer", "name email phoneNumber profilePicture")
-        .populate("seller", "name email phoneNumber profilePicture")
-        .lean(),
-    ]);
-
-    const taggedTransactions = transactions.map((item) => ({
-      ...item,
-      recordType: "transaction",
-    }));
-    const taggedEscrows = escrows.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "escrow" };
-    });
-
-    const allActivities = [...taggedTransactions, ...taggedEscrows];
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    const agentPayments = transactions.filter(
-      (t) =>
-        t.to?.toString() === agentId.toString() && t.type === "agent_payment",
-    );
-    const totalEarned = agentPayments.reduce(
-      (sum, t) => sum + (t.amount || 0),
-      0,
-    );
-
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      totalEarned,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getAgentTransactionsAndEscrows error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-const getAgentPurchasesAndInspections = async (req, res) => {
-  try {
-    const agentId = req.params.agentId || req.user._id;
-
-    const [purchases, inspections] = await Promise.all([
-      Purchase.find({
-        owner: agentId,
-        status: { $nin: ["none"] },
-      })
-        .populate("property", "title price address images")
-        .populate("buyer", "name email phoneNumber profilePicture")
-        .populate("owner", "name email phoneNumber profilePicture")
-        .lean(),
-
-      Inspection.find({
-        owner: agentId,
-        status: {
-          $nin: ["none", "inspection_requested", "inspection_initialized"],
-        },
-      })
-        .populate("property", "title price address images")
-        .populate("user", "name email phoneNumber profilePicture")
-        .populate("owner", "name email phoneNumber profilePicture")
-        .lean(),
-    ]);
-
-    const taggedPurchases = purchases.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "purchase" };
-    });
-    const taggedInspections = inspections.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "inspection" };
-    });
-
-    const allActivities = [...taggedPurchases, ...taggedInspections];
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getAgentPurchasesAndInspections error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-const getAllTransactionsAndEscrows = async (req, res) => {
-  try {
-    const [transactions, escrows] = await Promise.all([
-      Transaction.find()
-        .populate("from", "name email phoneNumber profilePicture")
-        .populate("to", "name email phoneNumber profilePicture")
-        .lean(),
-
-      Escrow.find()
-        .populate("property", "title price address images")
-        .populate("buyer", "name email phoneNumber profilePicture")
-        .populate("seller", "name email phoneNumber profilePicture")
-        .lean(),
-    ]);
-
-    const taggedTransactions = transactions.map((item) => ({
-      ...item,
-      recordType: "transaction",
-    }));
-    const taggedEscrows = escrows.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "escrow" };
-    });
-
-    const allActivities = [...taggedTransactions, ...taggedEscrows];
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getAllTransactionsAndEscrows error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-const getAllPurchasesAndInspections = async (req, res) => {
-  try {
-    const [purchases, inspections] = await Promise.all([
-      Purchase.find({
-        status: { $nin: ["none", "property_payment_review"] },
-      })
-        .populate("property", "title price address images")
-        .populate("buyer", "name email phoneNumber profilePicture")
-        .populate("owner", "name email phoneNumber profilePicture")
-        .lean(),
-
-      Inspection.find({
-        status: {
-          $nin: ["none", "inspection_requested", "inspection_initialized"],
-        },
-      })
-        .populate("property", "title price address images")
-        .populate("user", "name email phoneNumber profilePicture")
-        .populate("owner", "name email phoneNumber profilePicture")
-        .lean(),
-    ]);
-
-    const taggedPurchases = purchases.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "purchase" };
-    });
-    const taggedInspections = inspections.map((item) => {
-      attachFirstPropertyImage(item);
-      return { ...item, recordType: "inspection" };
-    });
-
-    const allActivities = [...taggedPurchases, ...taggedInspections];
-    allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return res.json({
-      success: true,
-      count: allActivities.length,
-      activities: allActivities,
-    });
-  } catch (err) {
-    console.error("getAllPurchasesAndInspections error:", err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ---------------------------
-// 4️⃣ Request Agent Withdrawal (Saves Bank Details Snapshot)
-// ---------------------------
-const requestWithdrawal = async (req, res) => {
-  try {
-    const { amount, bankDetails } = req.body;
-    const userId = req.user._id;
-
-    if (!amount || amount <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid withdrawal amount" });
+    if (!this.code) {
+      // atomic counter: each call gets the next number, even when two
+      // properties are saved at the same moment
+      const counter = await Counter.findOneAndUpdate(
+        { _id: "property" },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true },
+      );
+      this.code = `PROP-${String(counter.seq).padStart(4, "0")}`;
     }
-
-    if (!bankDetails || !bankDetails.accountNumber || !bankDetails.bankName) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Destination bank details (bankName, accountNumber, accountName) are required",
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user || user.role !== "agent") {
-      return res.status(403).json({
-        success: false,
-        message: "Access denied. Only agents can request withdrawals.",
-      });
-    }
-
-    // if (user.balance < amount) {
-    //   return res
-    //     .status(400)
-    //     .json({ success: false, message: "Insufficient wallet balance" });
-    // }
-
-    // const reference = crypto.randomBytes(16).toString("hex");
-
-    // const transaction = await Transaction.create({
-    //   from: userId,
-    //   to: userId,
-    //   amount,
-    //   type: "withdrawal",
-    //   status: "pending",
-    //   reference,
-    //   bankDetails: {
-    //     bankName: bankDetails.bankName,
-    //     bankCode: bankDetails.bankCode || "",
-    //     accountNumber: bankDetails.accountNumber,
-    //     accountName: bankDetails.accountName || user.name,
-    //   },
-    // });
-
-    // // Deduct from agent wallet atomically
-    // // user.balance -= amount;
-    // // await user.save();
-    // const usersave = await User.findOneAndUpdate(
-    //   { _id: userId, role: "agent", balance: { $gte: amount } },
-    //   { $inc: { balance: -amount } },
-    //   { new: true },
-    // );
-    // if (!usersave) {
-    //   return res
-    //     .status(400)
-    //     .json({ success: false, message: "Insufficient wallet balance" });
-    // }
-
-    // Check and take the money in one step, BEFORE recording the withdrawal
-
-    const usersave = await User.findOneAndUpdate(
-      { _id: userId, role: "agent", balance: { $gte: Number(amount) } },
-      { $inc: { balance: -Number(amount) } },
-      { new: true },
-    );
-    if (!usersave) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Insufficient wallet balance" });
-    }
-    // the notification and response below read user.balance
-    user.balance = usersave.balance;
-
-    const reference = crypto.randomBytes(16).toString("hex");
-
-    let transaction;
-    try {
-      transaction = await Transaction.create({
-        from: userId,
-        to: userId,
-        amount,
-        type: "withdrawal",
-        status: "pending",
-        reference,
-        bankDetails: {
-          bankName: bankDetails.bankName,
-          bankCode: bankDetails.bankCode || "",
-          accountNumber: bankDetails.accountNumber,
-          accountName: bankDetails.accountName || user.name,
-        },
-      });
-    } catch (createErr) {
-      // put the money back if the withdrawal couldn't be recorded
-      await User.findByIdAndUpdate(userId, {
-        $inc: { balance: Number(amount) },
-      });
-      throw createErr;
-    }
-
-    await Notification.create({
-      user: userId,
-      title: "Withdrawal Requested",
-      message: `Your withdrawal request of ₦${amount} has been submitted.`,
-      meta: { transactionId: transaction._id },
-    });
-
-    notifyUser(userId, "notification", {
-      type: "withdrawal_requested",
-      title: "New Withdrawal Request",
-      message: `Withdrawal request of ₦${amount} submitted successfully.`,
-      balance: user.balance,
-      transactionId: transaction._id,
-    });
-
-    // tell the admins: the payouts page (and its sidebar count) refreshes on this
-    const admins = await User.find({ role: "admin" }).select("_id");
-    const adminMessage = `${user.name || "An agent"} requested a withdrawal of ₦${Number(amount).toLocaleString()}.`;
-    for (const admin of admins) {
-      await Notification.create({
-        user: admin._id,
-        title: "New Withdrawal Request",
-        message: adminMessage,
-        meta: { transactionId: transaction._id },
-      });
-      notifyUser(admin._id, "notification", {
-        type: "withdrawal_requested",
-        title: "New Withdrawal Request",
-        message: adminMessage,
-        transactionId: transaction._id,
-      });
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: "Withdrawal request submitted successfully",
-      balance: user.balance,
-      transaction,
-    });
+    next();
   } catch (err) {
-    console.error("requestWithdrawal error:", err);
-    return res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
-};
+});
 
-module.exports = {
-  recordWalletFunding,
-  walletFunding,
-  confirmFundWallet,
-  verifyWalletFunding,
-  payAgent,
-  changeTransactionStatus,
-  getUserTransactionsAndEscrows,
-  getAgentTransactionsAndEscrows,
-  getAllTransactionsAndEscrows,
-  getUserPurchasesAndInspections,
-  getAgentPurchasesAndInspections,
-  getAllPurchasesAndInspections,
-  requestWithdrawal,
-};
+module.exports = mongoose.model("Property", propertySchema);
 ```
 
-### `controllers/property.js`
+## controllers/property.js
 
 ```js
 const Property = require("../models/property.js");
@@ -1187,6 +340,7 @@ const createProperty = async (req, res) => {
       address,
       propertyType,
       listingType,
+      buildingType,
       landSize,
       landUnit,
       landCondition,
@@ -1250,6 +404,7 @@ const createProperty = async (req, res) => {
       landCondition: propertyType === "land" ? landCondition : null,
       landDocTitle: propertyType === "land" ? landDocTitle : null,
       landType: propertyType === "land" ? landType : null,
+      buildingType: propertyType !== "land" ? buildingType || null : null,
       legalDocuments: legalDocuments,
       bedroom: propertyType !== "land" ? bedroom : null,
       bathroom: propertyType !== "land" ? bathroom : null,
@@ -1433,6 +588,7 @@ const updateProperty = async (req, res) => {
       address,
       propertyType,
       listingType,
+      buildingType,
       landSize,
       landUnit,
       landCondition,
@@ -1485,7 +641,9 @@ const updateProperty = async (req, res) => {
       prop.bedroom = null;
       prop.bathroom = null;
       prop.kitchen = null;
+      prop.buildingType = null;
     } else {
+      if (buildingType !== undefined) prop.buildingType = buildingType || null;
       if (bedroom !== undefined) prop.bedroom = bedroom;
       if (bathroom !== undefined) prop.bathroom = bathroom;
       if (kitchen !== undefined) prop.kitchen = kitchen;
@@ -2017,16 +1175,1047 @@ module.exports = {
 };
 ```
 
-## Optional, later: other notifications that are just noise
+---
 
-These are saved, but they only repeat what the person just did. The frontend now hides them, so this is just database tidying. Delete the `Notification.create` call for each one, and keep any socket events:
+# 2. Agent contact details on the public agent pages
 
-- `controllers/auth.js`: "Login Successful", "Google Login", "Verify Your Email", "Verification Code Resent"
-- `controllers/favorite.js`: "Added to Favorites", "Removed from Favorites", "Favorites Cleared"
-- `controllers/user.js`: "Profile Updated" (to the user), and "User Profile Updated", which goes to **every admin** whenever anyone edits their profile
+**The problem:** `GET /user/agents` and `GET /user/agents/:id` don't need a login (the frontend now shows the agent list and agent profiles to visitors who aren't signed in). But both responses include every agent's **email** and **phone number**, so anyone can collect them straight from the API. That invites scraping and deals made off the platform, around escrow. `GET /user/agents/:id` also returns **riskLevel**, the admin's internal rating of the agent.
 
-## How to check
+**The fix** (built from your latest commit, 4706d7c; replace both files in full):
 
-1. **Admin** pays an agent's withdrawal while the agent is logged out. When the agent logs in, the bell shows **Withdrawal Paid** with the bank, and clicking it opens their wallet.
-2. **Admin** declines one: **Withdrawal Declined**, and the money is back in the wallet.
-3. **A buyer** opens a listing several times. The agent gets **no** "Property Viewed" notifications, and other logged-in users receive no event (check the browser DevTools → Network → WS frames).
+- `routes/user.js`: the two routes now use `optionalAuth` (the same middleware `GET /property/:id` uses), so the controller knows whether someone is logged in. They stay public.
+- `controllers/user.js`: one list of public fields for both endpoints (`AGENT_PUBLIC_FIELDS`), plus:
+  - `email` and `phoneNumber` only when the request is from a logged-in user;
+  - `riskLevel` only for admins.
+  - Nothing else changes in this file.
+
+**What the frontend expects:** visitors who aren't logged in get no email, phone or risk level; logged-in buyers and agents get email and phone; admins get everything as before (the admin property page reads the agent through `/user/agents/:id` with the admin's token).
+
+**To test**
+
+1. Logged out: `GET /user/agents` and `GET /user/agents/<id>` have no `email`, `phoneNumber` or `riskLevel`.
+2. Logged in as a buyer: both include `email` and `phoneNumber`, but not `riskLevel`.
+3. Logged in as an admin: `/user/agents/<id>` includes `riskLevel` too.
+4. An expired or invalid token behaves like logged out (no error).
+
+## routes/user.js
+
+```js
+// routes/user.js
+const express = require("express");
+const router = express.Router();
+const multer = require("multer");
+
+// Middlewares
+const { optionalAuth, protect, authorize } = require("../middlewares/auth"); // middleware to get req.user from JWT
+const trackActivity = require("../middlewares/trackActivity");
+const {
+  uploadProfilePicture,
+  uploadOnboardingFiles,
+} = require("../middlewares/upload");
+
+const {
+  getMe,
+  updateProfile,
+  changeProfilePicture,
+  onboardAgent,
+  getAllAgents,
+  getAllUsers,
+  getAgentProfile,
+  onboardUser,
+  upgradeUser,
+  getUserProfile,
+  updateAgentRiskLevel,
+  updateAgentVerification,
+  moderateUserAccount,
+} = require("../controllers/user");
+
+// ===============================
+// USER ROUTES
+// ===============================
+
+// Get logged-in user
+router.get("/me", protect, trackActivity, getMe);
+
+// Update profile (normal users only)
+router.put("/update-profile", protect, trackActivity, updateProfile);
+
+// Change profile picture (all users)
+router.post(
+  "/change-profile-picture",
+  protect,
+  trackActivity,
+  uploadProfilePicture,
+  changeProfilePicture,
+);
+
+// PUT or PATCH endpoint to onboard the agent
+router.patch(
+  "/onboard-agent",
+  protect,
+  authorize("agent"),
+  trackActivity,
+  uploadOnboardingFiles,
+  onboardAgent,
+);
+
+// PUT or PATCH endpoint to onboard the user
+router.patch(
+  "/onboard-user",
+  protect,
+  trackActivity,
+  uploadOnboardingFiles,
+  onboardUser,
+);
+
+// PUT or PATCH endpoint to upgrade user
+router.patch("/upgrade-user", protect, trackActivity, upgradeUser);
+
+// Get all agents (public route; a logged-in user also gets contact details)
+router.get("/agents", optionalAuth, getAllAgents);
+
+// Get all users (admin only)
+router.get("/users", protect, authorize("admin"), trackActivity, getAllUsers);
+
+// Get agent profile (public route; a logged-in user also gets contact details)
+router.get("/agents/:id", optionalAuth, getAgentProfile);
+
+// Get user profile (protected)
+router.get("/users/:id", protect, trackActivity, getUserProfile);
+
+// PATCH: Update an agent's risk level (Admin only)
+router.patch("/agents/:id/risk", protect, trackActivity, updateAgentRiskLevel);
+
+// Admin only routes
+router.patch(
+  "/agents/:id/verification",
+  protect,
+  authorize("admin"),
+  trackActivity,
+  updateAgentVerification,
+);
+router.patch(
+  "/users/:id/moderate",
+  protect,
+  authorize("admin"),
+  trackActivity,
+  moderateUserAccount,
+);
+
+module.exports = router;
+```
+
+## controllers/user.js
+
+```js
+const User = require("../models/user");
+const Notification = require("../models/notification");
+const jwt = require("jsonwebtoken");
+const { uploadImages } = require("../middlewares/cloudinary");
+
+/**
+ * @desc Get logged-in user
+ */
+const getMe = async (req, res) => {
+  try {
+    const authHeader = req.header("Authorization");
+    if (!authHeader)
+      return res.status(401).json({ message: "No token provided" });
+
+    const token = authHeader.replace("Bearer ", "").trim();
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.json({
+      success: true,
+      user,
+    });
+  } catch (err) {
+    console.error("GetMe error:", err.message);
+
+    if (err.name === "TokenExpiredError")
+      return res.status(401).json({ message: "Token expired" });
+
+    res.status(401).json({ message: "Invalid or missing token" });
+  }
+};
+
+/**
+ * @desc Update user profile info
+ */
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { name, address, phoneNumber } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Only allow normal users to update
+    // if (user.isGoogleUser) {
+    //   return res
+    //     .status(403)
+    //     .json({ message: "Google users cannot update these fields" });
+    // }
+
+    // all users (both google and non google users can now update these fields)
+    // Update allowed fields
+    if (name) user.name = name;
+    if (address) user.address = address;
+    if (phoneNumber) user.phoneNumber = phoneNumber;
+
+    await user.save();
+
+    // ---------------------------
+    // NOTIFY ADMINS
+    // ---------------------------
+    const admins = await User.find({ role: "admin" });
+
+    for (const admin of admins) {
+      const notif = await Notification.create({
+        user: admin._id,
+        title: "User Profile Updated",
+        message: `${user.name} updated their profile information`,
+        meta: {
+          updatedFields: { name, address, phoneNumber },
+          userId: user._id,
+        },
+      });
+
+      const adminSocketId = global.onlineUsers?.get(admin._id.toString());
+      if (adminSocketId && global.io) {
+        global.io.to(adminSocketId).emit("notification", notif);
+      }
+    }
+
+    // Sanitize user object to remove password before sending response
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.json({ message: "User updated successfully", user: userResponse });
+  } catch (err) {
+    console.error("Update user error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Change user profile picture
+ */
+const changeProfilePicture = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    if (!req.files) {
+      return res.status(400).json({ message: "Profile picture is required" });
+    }
+
+    const imageUrl = req.files?.images
+      ? await uploadImages(req.files.images)
+      : [];
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.profilePicture = imageUrl;
+    await user.save();
+
+    await Notification.create({
+      user: user._id,
+      title: "Profile Updated",
+      message: `${user.name} updated their profile picture`,
+      meta: { userId },
+    });
+
+    if (global.io) {
+      global.io.to("admin").emit("notification", {
+        type: "profile_picture_updated",
+        title: "Profile Picture Updated",
+        message: `${user.name} changed their profile picture`,
+        userId,
+      });
+    }
+
+    res.json({
+      message: "Profile picture updated successfully",
+      profilePicture: imageUrl,
+    });
+  } catch (err) {
+    console.error("changeProfilePicture error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Onboard an agent by submitting professional details and document/ID files
+ */
+// const onboardAgent = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+//     const {
+//       phoneNumber,
+//       about,
+//       yearsOfExperience,
+//       serviceArea,
+//       languages,
+//       businessName,
+//       licenseNumber,
+//       officeAddress,
+//       socialLinkOrWebsite,
+//     } = req.body;
+
+//     const user = await User.findById(userId);
+//     if (!user) return res.status(404).json({ message: "User not found" });
+
+//     if (user.role !== "agent") {
+//       return res.status(403).json({
+//         message: "Only users with the agent role can complete onboarding",
+//       });
+//     }
+
+//     const governmentIdUrls = req.files?.governmentId
+//       ? await uploadImages(req.files.governmentId)
+//       : [];
+
+//     const licenseDocUrls = req.files?.licenseDoc
+//       ? await uploadImages(req.files.licenseDoc)
+//       : [];
+
+//     if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+//     if (about !== undefined) user.about = about;
+//     if (yearsOfExperience !== undefined)
+//       user.yearsOfExperience = yearsOfExperience;
+
+//     if (serviceArea !== undefined) {
+//       try {
+//         user.serviceArea =
+//           typeof serviceArea === "string"
+//             ? JSON.parse(serviceArea)
+//             : serviceArea;
+//       } catch (e) {
+//         user.serviceArea =
+//           typeof serviceArea === "string"
+//             ? serviceArea.split(",").map((s) => s.trim())
+//             : serviceArea;
+//       }
+//     }
+
+//     if (languages !== undefined) {
+//       try {
+//         user.languages =
+//           typeof languages === "string" ? JSON.parse(languages) : languages;
+//       } catch (e) {
+//         user.languages =
+//           typeof languages === "string"
+//             ? languages.split(",").map((l) => l.trim())
+//             : languages;
+//       }
+//     }
+
+//     if (businessName !== undefined) user.businessName = businessName;
+//     if (licenseNumber !== undefined) user.licenseNumber = licenseNumber;
+//     if (officeAddress !== undefined) user.officeAddress = officeAddress;
+//     if (socialLinkOrWebsite !== undefined)
+//       user.socialLinkOrWebsite = socialLinkOrWebsite;
+
+//     user.governmentId = governmentIdUrls;
+//     user.licenseDoc = licenseDocUrls;
+//     user.isOnboarding = true;
+//     user.onboardedAt = Date.now();
+//     user.verificationStatus = "pending";
+//     -(await user.save());
+
+//     const admins = await User.find({ role: "admin" });
+//     for (const admin of admins) {
+//       const notif = await Notification.create({
+//         user: admin._id,
+//         title: "Agent Onboarded",
+//         message: `${user.name} submitted their agent onboarding details`,
+//         meta: { userId: user._id },
+//       });
+
+//       const adminSocketId = global.onlineUsers?.get(admin._id.toString());
+//       if (adminSocketId && global.io) {
+//         global.io.to(adminSocketId).emit("notification", notif);
+//       }
+//     }
+
+//     // Sanitize user object
+//     const userResponse = user.toObject();
+//     delete userResponse.password;
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agent onboarding submitted successfully",
+//       user: userResponse,
+//     });
+//   } catch (err) {
+//     console.error("onboardAgent error:", err);
+//     return res
+//       .status(500)
+//       .json({ message: "Server error", error: err.message });
+//   }
+// };
+
+const onboardAgent = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const {
+      phoneNumber,
+      about,
+      yearsOfExperience,
+      serviceArea,
+      languages,
+      businessName,
+      licenseNumber,
+      officeAddress,
+      socialLinkOrWebsite,
+    } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.role !== "agent") {
+      return res.status(403).json({
+        message: "Only users with the agent role can complete onboarding",
+      });
+    }
+
+    // 1. Enforce submission/resubmission restriction rule
+    const currentStatus = user.verificationStatus || "none";
+    if (currentStatus === "pending" || currentStatus === "approved") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit onboarding while status is '${currentStatus}'.`,
+      });
+    }
+
+    // 2. File persistence: keep existing documents if no new files are uploaded
+    const governmentIdUrls = req.files?.governmentId
+      ? await uploadImages(req.files.governmentId)
+      : user.governmentId;
+
+    const licenseDocUrls = req.files?.licenseDoc
+      ? await uploadImages(req.files.licenseDoc)
+      : user.licenseDoc;
+
+    if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
+    if (about !== undefined) user.about = about;
+    if (yearsOfExperience !== undefined)
+      user.yearsOfExperience = yearsOfExperience;
+
+    if (serviceArea !== undefined) {
+      try {
+        user.serviceArea =
+          typeof serviceArea === "string"
+            ? JSON.parse(serviceArea)
+            : serviceArea;
+      } catch (e) {
+        user.serviceArea =
+          typeof serviceArea === "string"
+            ? serviceArea.split(",").map((s) => s.trim())
+            : serviceArea;
+      }
+    }
+
+    if (languages !== undefined) {
+      try {
+        user.languages =
+          typeof languages === "string" ? JSON.parse(languages) : languages;
+      } catch (e) {
+        user.languages =
+          typeof languages === "string"
+            ? languages.split(",").map((l) => l.trim())
+            : languages;
+      }
+    }
+
+    if (businessName !== undefined) user.businessName = businessName;
+    if (licenseNumber !== undefined) user.licenseNumber = licenseNumber;
+    if (officeAddress !== undefined) user.officeAddress = officeAddress;
+    if (socialLinkOrWebsite !== undefined)
+      user.socialLinkOrWebsite = socialLinkOrWebsite;
+
+    user.governmentId = governmentIdUrls;
+    user.licenseDoc = licenseDocUrls;
+    user.isOnboarding = true;
+    user.onboardedAt = Date.now();
+    user.verificationStatus = "pending";
+
+    // Clear old rejection notes when re-submitting from a rejected state
+    user.verificationNote = undefined;
+
+    await user.save();
+
+    const admins = await User.find({ role: "admin" });
+    for (const admin of admins) {
+      const notif = await Notification.create({
+        user: admin._id,
+        title: "Agent Onboarded",
+        message: `${user.name} submitted their agent onboarding details`,
+        meta: { userId: user._id },
+      });
+
+      const adminSocketId = global.onlineUsers?.get(admin._id.toString());
+      if (adminSocketId && global.io) {
+        global.io.to(adminSocketId).emit("notification", notif);
+      }
+    }
+
+    // Sanitize user object
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent onboarding submitted successfully",
+      user: userResponse,
+    });
+  } catch (err) {
+    console.error("onboardAgent error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Get all agents (Public route)
+ */
+// const getAllAgents = async (req, res) => {
+//   try {
+//     const agents = await User.find({ role: "agent" }).select(
+//       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agents fetched successfully",
+//       total: agents.length,
+//       data: agents,
+//     });
+//   } catch (error) {
+//     console.error("getAllAgents error:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// What anyone (logged in or not) may see about an agent. Contact details
+// are added for logged-in users only, so they can't be scraped from the
+// public API; the risk level is the admin's own note and only admins get it.
+const AGENT_PUBLIC_FIELDS =
+  "name profilePicture isVerified verificationStatus about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt";
+
+const agentFieldsFor = (viewer) => {
+  let fields = AGENT_PUBLIC_FIELDS;
+  if (viewer) fields += " email phoneNumber";
+  if (viewer?.role === "admin") fields += " riskLevel";
+  return fields;
+};
+
+const getAllAgents = async (req, res) => {
+  try {
+    const agents = await User.find({ role: "agent" }).select(
+      agentFieldsFor(req.user),
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Agents fetched successfully",
+      total: agents.length,
+      data: agents,
+    });
+  } catch (error) {
+    console.error("getAllAgents error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * @desc Get all users (Admin/General route - password excluded)
+ */
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+
+    return res.status(200).json({
+      success: true,
+      message: "All users fetched successfully",
+      total: users.length,
+      data: users,
+    });
+  } catch (error) {
+    console.error("getAllUsers error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+/**
+ * @desc Get a particular agent by ID (Public route)
+ */
+// const getAgentProfile = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const agent = await User.findOne({ _id: id, role: "agent" }).select(
+//       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+//     );
+
+//     if (!agent) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Agent not found",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agent fetched successfully",
+//       data: agent,
+//     });
+//   } catch (error) {
+//     console.error("getAgentProfile error:", error);
+
+//     if (error.kind === "ObjectId") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid agent ID format",
+//       });
+//     }
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// const getAgentProfile = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     const agent = await User.findOne({ _id: id, role: "agent" }).select(
+//       "name email phoneNumber profilePicture isVerified about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings riskLevel createdAt",
+//     );
+
+//     if (!agent) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Agent not found",
+//       });
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Agent fetched successfully",
+//       data: agent,
+//     });
+//   } catch (error) {
+//     console.error("getAgentProfile error:", error);
+
+//     if (error.kind === "ObjectId") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid agent ID format",
+//       });
+//     }
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Server error",
+//       error: error.message,
+//     });
+//   }
+// };
+const getAgentProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const agent = await User.findOne({ _id: id, role: "agent" }).select(
+      agentFieldsFor(req.user),
+    );
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Agent fetched successfully",
+      data: agent,
+    });
+  } catch (error) {
+    console.error("getAgentProfile error:", error);
+
+    if (error.kind === "ObjectId") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid agent ID format",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * @desc Complete standard user onboarding (sets isOnboarding to true)
+ */
+const onboardUser = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Verify user is a standard user
+    if (user.role !== "user") {
+      return res.status(403).json({
+        message:
+          "Only users with the standard user role can complete this onboarding",
+      });
+    }
+
+    // anybody can now access this route
+    // Only update isOnboarding to true
+    user.isOnboarding = true;
+
+    await user.save();
+
+    // Sanitize user object to remove password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message: "User onboarding completed successfully",
+      user: userResponse,
+    });
+  } catch (err) {
+    console.error("onboardUser error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Upgrade user account role from 'user' to 'agent'
+ */
+const upgradeUser = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Check if user is already an agent
+    if (user.role !== "user") {
+      return res.status(400).json({
+        success: false,
+        message: "Your account is already an agent account",
+      });
+    }
+
+    // Upgrade role to agent
+    user.role = "agent";
+
+    // Reset isOnboarding to false so they can proceed with filling out their agent profile/documents
+    user.isOnboarding = false;
+
+    await user.save();
+
+    // Sanitize user object to remove password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Account upgraded to agent successfully. Please proceed with agent onboarding.",
+      user: userResponse,
+    });
+  } catch (err) {
+    console.error("upgrade User error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
+  }
+};
+
+/**
+ * @desc Get user profile by ID (Public/Protected route)
+ */
+const getUserProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findOne({ _id: id, role: "user" }).select(
+      "name profilePicture address phoneNumber rating createdAt isOnboarding",
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User fetched successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("getUserProfile error:", error);
+
+    if (error.kind === "ObjectId") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * @desc Update an agent's risk level (Admin only)
+ * @route PATCH /api/users/agents/:id/risk
+ */
+const updateAgentRiskLevel = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { riskLevel } = req.body;
+
+    // 1. Verify admin role
+    if (req.user.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Only admins can update risk levels.",
+      });
+    }
+
+    // 2. Validate riskLevel value matches schema enum
+    const validLevels = ["none", "low", "medium", "high"];
+    if (!validLevels.includes(riskLevel)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid risk level. Must be 'none', 'low', 'medium', or 'high'.",
+      });
+    }
+
+    // 3. Find and update the agent
+    const agent = await User.findById(id);
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+    }
+
+    agent.riskLevel = riskLevel;
+    await agent.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Agent risk level successfully updated to '${riskLevel}'`,
+      agent: {
+        _id: agent._id,
+        name: agent.name,
+        email: agent.email,
+        riskLevel: agent.riskLevel,
+      },
+    });
+  } catch (err) {
+    console.error("updateAgentRiskLevel error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 15. Approve or Reject Agent Verification
+// const updateAgentVerification = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const { status } = req.body; // "approved" or "rejected"
+
+//     if (!["approved", "rejected"].includes(status)) {
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "Invalid status value" });
+//     }
+
+//     const agent = await User.findOne({ _id: id, role: "agent" });
+//     if (!agent)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Agent not found" });
+
+//     agent.verificationStatus = status;
+//     agent.isVerified = status === "approved";
+//     // agent.onboardedAt = Date.now();
+//     await agent.save();
+
+//     return res
+//       .status(200)
+//       .json({ success: true, message: `Agent verification ${status}`, agent });
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+const updateAgentVerification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, reason } = req.body; // "approved" or "rejected", optional reason
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status value" });
+    }
+
+    const agent = await User.findOne({ _id: id, role: "agent" });
+    if (!agent)
+      return res
+        .status(404)
+        .json({ success: false, message: "Agent not found" });
+
+    agent.verificationStatus = status;
+
+    // NOTE: Intentionally leaving agent.isVerified untouched (it is for email confirmation)
+
+    if (status === "rejected") {
+      agent.verificationNote =
+        reason || "Your onboarding verification was rejected.";
+    } else if (status === "approved") {
+      agent.verificationNote = undefined; // Clear any old rejection notes upon approval
+    }
+
+    await agent.save();
+
+    // Send notification to the agent about the decision
+    const notificationMessage =
+      status === "approved"
+        ? "Congratulations! Your agent onboarding verification has been approved."
+        : `Your agent onboarding verification was rejected. Reason: ${agent.verificationNote}`;
+
+    const notif = await Notification.create({
+      user: agent._id,
+      title: `Agent Verification ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      message: notificationMessage,
+      meta: { verificationStatus: status },
+    });
+
+    const agentSocketId = global.onlineUsers?.get(agent._id.toString());
+    if (agentSocketId && global.io) {
+      global.io.to(agentSocketId).emit("notification", notif);
+    }
+
+    const agentResponse = agent.toObject();
+    delete agentResponse.password;
+
+    return res.status(200).json({
+      success: true,
+      message: `Agent verification ${status}`,
+      agent: agentResponse,
+    });
+  } catch (err) {
+    console.error("updateAgentVerification error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// 16. Suspend, Ban, or Flag User
+const moderateUserAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, value } = req.body; // action: "suspend" | "ban" | "flag", value: boolean
+
+    const user = await User.findById(id);
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+
+    if (action === "suspend") user.isSuspended = value;
+    if (action === "ban") user.isBanned = value;
+    if (action === "flag") user.isFlagged = value;
+
+    await user.save();
+    return res
+      .status(200)
+      .json({ success: true, message: `User ${action} status updated`, user });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * One-time migration: Updates legacy submitted agents from "none" to "pending"
+ */
+const runAgentVerificationMigration = async () => {
+  try {
+    const result = await User.updateMany(
+      { role: "agent", isOnboarding: true, verificationStatus: "none" },
+      { $set: { verificationStatus: "pending" } },
+    );
+    if (result.modifiedCount > 0) {
+      console.log(
+        `[Migration] Successfully updated ${result.modifiedCount} legacy agent(s) to 'pending' status.`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[Migration] Error running agent verification migration:",
+      err,
+    );
+  }
+};
+
+// Execute it automatically on server startup
+runAgentVerificationMigration();
+
+module.exports = {
+  getMe,
+  updateProfile,
+  changeProfilePicture,
+  onboardAgent,
+  getAllAgents,
+  getAllUsers,
+  getAgentProfile,
+  onboardUser,
+  upgradeUser,
+  getUserProfile,
+  updateAgentRiskLevel,
+  updateAgentVerification,
+  moderateUserAccount,
+};
+```

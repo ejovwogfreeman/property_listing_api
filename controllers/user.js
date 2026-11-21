@@ -396,10 +396,23 @@ const onboardAgent = async (req, res) => {
 //   }
 // };
 
+// What anyone (logged in or not) may see about an agent. Contact details
+// are added for logged-in users only, so they can't be scraped from the
+// public API; the risk level is the admin's own note and only admins get it.
+const AGENT_PUBLIC_FIELDS =
+  "name profilePicture isVerified verificationStatus about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt";
+
+const agentFieldsFor = (viewer) => {
+  let fields = AGENT_PUBLIC_FIELDS;
+  if (viewer) fields += " email phoneNumber";
+  if (viewer?.role === "admin") fields += " riskLevel";
+  return fields;
+};
+
 const getAllAgents = async (req, res) => {
   try {
     const agents = await User.find({ role: "agent" }).select(
-      "name email phoneNumber profilePicture isVerified verificationStatus about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings createdAt",
+      agentFieldsFor(req.user),
     );
 
     return res.status(200).json({
@@ -523,7 +536,7 @@ const getAgentProfile = async (req, res) => {
     const { id } = req.params;
 
     const agent = await User.findOne({ _id: id, role: "agent" }).select(
-      "name email phoneNumber profilePicture isVerified verificationStatus about yearsOfExperience serviceArea languages businessName licenseNumber officeAddress socialLinkOrWebsite isOnboarding rating totalListings riskLevel createdAt",
+      agentFieldsFor(req.user),
     );
 
     if (!agent) {

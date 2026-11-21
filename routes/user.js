@@ -1,10 +1,9 @@
-// routes/user.js
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 
 // Middlewares
-const { protect, authorize } = require("../middlewares/auth"); // middleware to get req.user from JWT
+const { optionalAuth, protect, authorize } = require("../middlewares/auth"); // middleware to get req.user from JWT
 const trackActivity = require("../middlewares/trackActivity");
 const {
   uploadProfilePicture,
@@ -68,14 +67,14 @@ router.patch(
 // PUT or PATCH endpoint to upgrade user
 router.patch("/upgrade-user", protect, trackActivity, upgradeUser);
 
-// Get all agents (public route, no protect needed)
-router.get("/agents", getAllAgents);
+// Get all agents (public route; a logged-in user also gets contact details)
+router.get("/agents", optionalAuth, getAllAgents);
 
 // Get all users (admin only)
 router.get("/users", protect, authorize("admin"), trackActivity, getAllUsers);
 
-// Get agent profile (public route)
-router.get("/agents/:id", getAgentProfile);
+// Get agent profile (public route; a logged-in user also gets contact details)
+router.get("/agents/:id", optionalAuth, getAgentProfile);
 
 // Get user profile (protected)
 router.get("/users/:id", protect, trackActivity, getUserProfile);

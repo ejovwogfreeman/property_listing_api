@@ -41,6 +41,23 @@ const propertySchema = new mongoose.Schema(
       required: true,
       enum: ["rent", "sale"],
     },
+    // the kind of building (buildings only; null for land and for older
+    // listings made before this field existed)
+    buildingType: {
+      type: String,
+      enum: [
+        "self_contain",
+        "mini_flat",
+        "flat",
+        "bungalow",
+        "duplex",
+        "terrace",
+        "penthouse",
+        "commercial",
+        null,
+      ],
+      default: null,
+    },
     landSize: {
       type: String,
     },
