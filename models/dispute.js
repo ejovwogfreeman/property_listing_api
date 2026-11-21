@@ -72,6 +72,7 @@ const DisputeSchema = new Schema(
         "refund_request",
         "property_mismatch",
         "agent_misconduct",
+        "buyer_misconduct", // raised by the agent against the buyer
         "payment_issue",
         "other",
       ],

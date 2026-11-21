@@ -42,6 +42,7 @@ const CATEGORIES = [
   "refund_request",
   "property_mismatch",
   "agent_misconduct",
+  "buyer_misconduct",
   "payment_issue",
   "other",
 ];
