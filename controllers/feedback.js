@@ -1,17 +1,34 @@
 const Feedback = require("../models/feedback");
 const Email = require("../middlewares/email");
 
+// limits on what one feedback message can hold
+const MAX_ABOUT = 100;
+const MAX_FEEDBACK = 2000;
+
+// true when this user sent the feedback (older items may have no user)
+const isSender = (item, user) =>
+  !!item.user &&
+  (item.user._id || item.user).toString() === user._id.toString();
+
 /**
  * @desc Submit feedback (requires authentication) and forward to site admin email
  */
 const submitFeedback = async (req, res) => {
   try {
-    const { about, feedback } = req.body;
+    const about = String(req.body.about || "").trim();
+    const feedback = String(req.body.feedback || "").trim();
 
     if (!about || !feedback) {
       return res.status(400).json({
         success: false,
         message: "Please provide both 'about' and 'feedback' fields.",
+      });
+    }
+
+    if (about.length > MAX_ABOUT || feedback.length > MAX_FEEDBACK) {
+      return res.status(400).json({
+        success: false,
+        message: `Please keep your feedback under ${MAX_FEEDBACK} characters.`,
       });
     }
 
@@ -30,6 +47,7 @@ const submitFeedback = async (req, res) => {
     const newFeedback = await Feedback.create({
       user: userId,
       name: submitterName,
+      email: submitterEmail,
       about,
       feedback,
     });
@@ -72,14 +90,14 @@ const submitFeedback = async (req, res) => {
 };
 
 /**
- * @desc Get all feedback (Admin and Agent access)
+ * @desc Get all feedback (Admin only)
  */
 const getAllFeedback = async (req, res) => {
   try {
-    if (!["admin", "agent"].includes(req.user.role)) {
+    if (req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
-        message: "Access denied. Only admins and agents can view all feedback.",
+        message: "Access denied. Only admins can view all feedback.",
       });
     }
 
@@ -123,7 +141,7 @@ const getMyFeedback = async (req, res) => {
 };
 
 /**
- * @desc Get a single feedback item by ID (Owner, Agent, or Admin access)
+ * @desc Get a single feedback item by ID (Owner or Admin access)
  */
 const getFeedbackById = async (req, res) => {
   try {
@@ -141,13 +159,8 @@ const getFeedbackById = async (req, res) => {
       });
     }
 
-    // Check authorization: Must be the creator, an agent, or an admin
-    const isOwner =
-      feedbackItem.user &&
-      feedbackItem.user._id.toString() === req.user._id.toString();
-    const isAuthorizedRole = ["admin", "agent"].includes(req.user.role);
-
-    if (!isOwner && !isAuthorizedRole) {
+    // Check authorization: Must be the creator or an admin
+    if (!isSender(feedbackItem, req.user) && req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Not authorized to view this feedback",
@@ -193,18 +206,33 @@ const updateFeedback = async (req, res) => {
     }
 
     // Check authorization: Must be the creator of the feedback or an admin
-    if (
-      feedbackItem.user.toString() !== req.user._id.toString() &&
-      req.user.role !== "admin"
-    ) {
+    // (older items with no user can only be changed by an admin)
+    if (!isSender(feedbackItem, req.user) && req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Not authorized to update this feedback",
       });
     }
 
-    if (about !== undefined) feedbackItem.about = about;
-    if (feedback !== undefined) feedbackItem.feedback = feedback;
+    if (about !== undefined) {
+      const next = String(about).trim();
+      if (!next || next.length > MAX_ABOUT) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Please choose a topic." });
+      }
+      feedbackItem.about = next;
+    }
+    if (feedback !== undefined) {
+      const next = String(feedback).trim();
+      if (!next || next.length > MAX_FEEDBACK) {
+        return res.status(400).json({
+          success: false,
+          message: `Please keep your feedback under ${MAX_FEEDBACK} characters.`,
+        });
+      }
+      feedbackItem.feedback = next;
+    }
 
     await feedbackItem.save();
 
@@ -236,10 +264,7 @@ const deleteFeedback = async (req, res) => {
     }
 
     // Check authorization: Must be owner or admin
-    if (
-      feedbackItem.user.toString() !== req.user._id.toString() &&
-      req.user.role !== "admin"
-    ) {
+    if (!isSender(feedbackItem, req.user) && req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Not authorized to delete this feedback",

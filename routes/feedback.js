@@ -13,13 +13,14 @@ const { protect, authorize } = require("../middlewares/auth"); // middleware to 
 // POST: Submit feedback (Authenticated users/agents)
 router.post("/", protect, submitFeedback);
 
-// GET: Get all feedback (Agents and Admins only)
-router.get("/", protect, authorize("admin", "agent"), getAllFeedback);
+// GET: Get all feedback (Admins only — feedback can be about agents, so
+// agents must not read it)
+router.get("/", protect, authorize("admin"), getAllFeedback);
 
 // GET: Get logged-in user's feedback
 router.get("/my", protect, getMyFeedback);
 
-// GET feedback by ID
+// GET feedback by ID (the person who sent it, or an admin)
 router.get("/:id", protect, getFeedbackById);
 
 // PUT: Update feedback by ID (Owner or Admin)
