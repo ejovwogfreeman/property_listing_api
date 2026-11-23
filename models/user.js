@@ -50,6 +50,22 @@ const UserSchema = new mongoose.Schema({
   // money for ads only: the unused days of paused or stopped ads. Spent on
   // the next ad before the wallet; never withdrawn
   adCredit: { type: Number, default: 0 },
+
+  // --- Withdrawal PIN (agents) ---
+  // A 4-digit PIN asked for on every withdrawal. Only a bcrypt hash is kept,
+  // and select: false keeps it (and the fields below marked so) out of every
+  // response, including /user/me and the admin user lists.
+  withdrawalPin: { type: String, default: null, select: false },
+  // what the app reads to know whether a PIN has been set
+  withdrawalPinSet: { type: Boolean, default: false },
+  // wrong PINs in a row; 5 locks withdrawals until pinLockedUntil
+  pinAttempts: { type: Number, default: 0, select: false },
+  pinLockedUntil: { type: Date, default: null },
+  // the emailed 6-digit code that sets or resets the PIN (a bcrypt hash too)
+  pinCode: { type: String, default: null, select: false },
+  pinCodeExpires: { type: Date, default: null, select: false },
+  pinCodeSentAt: { type: Date, default: null, select: false },
+  pinCodeAttempts: { type: Number, default: 0, select: false },
   address: { type: String, default: null },
   phoneNumber: { type: String, default: null },
   profilePicture: {

@@ -25,6 +25,10 @@ const {
   updateAgentVerification,
   moderateUserAccount,
 } = require("../controllers/user");
+const {
+  sendWithdrawalPinCode,
+  setWithdrawalPin,
+} = require("../controllers/withdrawalPin");
 
 // ===============================
 // USER ROUTES
@@ -81,6 +85,22 @@ router.get("/users/:id", protect, trackActivity, getUserProfile);
 
 // PATCH: Update an agent's risk level (Admin only)
 router.patch("/agents/:id/risk", protect, trackActivity, updateAgentRiskLevel);
+
+// Withdrawal PIN (agents): email a code, then set or reset the PIN with it
+router.post(
+  "/withdrawal-pin/send-code",
+  protect,
+  authorize("agent"),
+  trackActivity,
+  sendWithdrawalPinCode,
+);
+router.post(
+  "/withdrawal-pin",
+  protect,
+  authorize("agent"),
+  trackActivity,
+  setWithdrawalPin,
+);
 
 // Admin only routes
 router.patch(

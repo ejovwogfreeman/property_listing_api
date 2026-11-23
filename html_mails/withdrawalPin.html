@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Your withdrawal PIN code</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+      .container {
+        max-width: 600px;
+        margin: auto;
+        background: #ffffff;
+        padding: 25px;
+        border-radius: 8px;
+      }
+      h2 {
+        color: #333;
+      }
+      p {
+        color: #555;
+      }
+      .code-box {
+        margin-top: 20px;
+        padding: 15px;
+        font-size: 24px;
+        font-weight: bold;
+        letter-spacing: 4px;
+        text-align: center;
+        background: #1f6feb;
+        color: white;
+        border-radius: 6px;
+      }
+      .warning {
+        margin-top: 20px;
+        padding: 12px;
+        background: #fff4e5;
+        color: #8a4b00;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Your withdrawal PIN code</h2>
+
+      <p>Hello {{NAME}},</p>
+
+      <p>
+        Use this code in the FindaHome app to set or reset your withdrawal PIN.
+        It works for {{MINUTES}} minutes.
+      </p>
+
+      <div class="code-box">{{CODE}}</div>
+
+      <p class="warning">
+        Never share this code with anyone, including anyone who says they work
+        for FindaHome. If you didn't ask for it, someone may be trying to get
+        into your account: change your password.
+      </p>
+    </div>
+  </body>
+</html>

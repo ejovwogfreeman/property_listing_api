@@ -17,6 +17,7 @@ const {
   requestWithdrawal,
 } = require("../controllers/transaction");
 const { protect, authorize } = require("../middlewares/auth");
+const { requireWithdrawalPin } = require("../middlewares/withdrawalPin");
 
 // ---------------------------
 // Transaction Routes
@@ -91,12 +92,13 @@ router.get(
   getAllPurchasesAndInspections,
 );
 
-// Request Withdrawal
+// Request Withdrawal (the agent's withdrawal PIN is checked first)
 router.post(
   "/withdraw",
   protect,
   authorize("agent"),
   upload.none(),
+  requireWithdrawalPin,
   requestWithdrawal,
 );
 
