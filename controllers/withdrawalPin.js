@@ -55,7 +55,7 @@ const sendWithdrawalPinCode = async (req, res) => {
       },
     );
 
-    await Email(user.email, "Your withdrawal PIN code", "withdrawalpin.html", {
+    await Email(user.email, "Your withdrawal PIN code", "withdrawalPin.html", {
       NAME: user.name || user.email,
       CODE: code,
       MINUTES: CODE_MINUTES,
